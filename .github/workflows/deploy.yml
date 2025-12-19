@@ -1,0 +1,118 @@
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: rg-portfolio-tracker
+  LOCATION: westeurope
+  ACR_NAME: acrportfoliotracker
+  BACKEND_APP: ca-portfoliotracker-backend
+  FRONTEND_APP: ca-portfoliotracker-frontend
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get ACR credentials
+        id: acr
+        run: |
+          ACR_LOGIN_SERVER=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer -o tsv)
+          echo "login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+
+      - name: Login to ACR
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ steps.acr.outputs.login_server }}
+          username: ${{ env.ACR_NAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push backend image
+        run: |
+          docker build -t ${{ steps.acr.outputs.login_server }}/portfolio-backend:${{ github.sha }} ./backend
+          docker build -t ${{ steps.acr.outputs.login_server }}/portfolio-backend:latest ./backend
+          docker push ${{ steps.acr.outputs.login_server }}/portfolio-backend:${{ github.sha }}
+          docker push ${{ steps.acr.outputs.login_server }}/portfolio-backend:latest
+
+      - name: Build and push frontend image
+        run: |
+          docker build -t ${{ steps.acr.outputs.login_server }}/portfolio-frontend:${{ github.sha }} ./frontend
+          docker build -t ${{ steps.acr.outputs.login_server }}/portfolio-frontend:latest ./frontend
+          docker push ${{ steps.acr.outputs.login_server }}/portfolio-frontend:${{ github.sha }}
+          docker push ${{ steps.acr.outputs.login_server }}/portfolio-frontend:latest
+
+      - name: Deploy backend to Container Apps
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          resourceGroup: ${{ env.RESOURCE_GROUP }}
+          containerAppName: ${{ env.BACKEND_APP }}
+          imageToDeploy: ${{ steps.acr.outputs.login_server }}/portfolio-backend:${{ github.sha }}
+
+      - name: Deploy frontend to Container Apps
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          resourceGroup: ${{ env.RESOURCE_GROUP }}
+          containerAppName: ${{ env.FRONTEND_APP }}
+          imageToDeploy: ${{ steps.acr.outputs.login_server }}/portfolio-frontend:${{ github.sha }}
+
+      - name: Get deployment URLs
+        run: |
+          FRONTEND_URL=$(az containerapp show --name ${{ env.FRONTEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
+          BACKEND_URL=$(az containerapp show --name ${{ env.BACKEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "## Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend**: https://$FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend API**: https://$BACKEND_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- **API Docs**: https://$BACKEND_URL/docs" >> $GITHUB_STEP_SUMMARY
+
+  # Initial infrastructure setup (run once manually)
+  setup-infrastructure:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        run: |
+          az group create \
+            --name ${{ env.RESOURCE_GROUP }} \
+            --location ${{ env.LOCATION }}
+
+      - name: Deploy Infrastructure
+        uses: azure/arm-deploy@v1
+        with:
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ${{ env.RESOURCE_GROUP }}
+          template: ./infra/main.bicep
+          parameters: location=${{ env.LOCATION }}
+          failOnStdErr: false
+
+      - name: Get ACR Password
+        id: acr-password
+        run: |
+          ACR_PASSWORD=$(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv)
+          echo "::add-mask::$ACR_PASSWORD"
+          echo "password=$ACR_PASSWORD" >> $GITHUB_OUTPUT
+          echo ""
+          echo "## Infrastructure Setup Complete! :white_check_mark:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Add the following secret to your repository:" >> $GITHUB_STEP_SUMMARY
+          echo "- **ACR_PASSWORD**: (check the action logs or Azure Portal)" >> $GITHUB_STEP_SUMMARY
