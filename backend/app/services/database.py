@@ -52,12 +52,10 @@ def _create_tables(conn):
         ex_date TEXT NOT NULL,
         bruto_amount REAL NOT NULL,
         currency TEXT DEFAULT 'USD',
-        notes TEXT,
+        withheld_tax REAL DEFAULT 0,
+        net_amount REAL,
         received INTEGER DEFAULT 0,
-        tax_paid INTEGER DEFAULT 0,
-        withheld_amount REAL,
-        additional_tax_due REAL,
-        net_received REAL
+        notes TEXT
     );
 
     CREATE TABLE IF NOT EXISTS cash_transactions (
@@ -93,6 +91,7 @@ def _create_tables(conn):
         country TEXT DEFAULT 'Verenigde Staten',
         custom_dividend_tax_rate REAL,
         yahoo_ticker TEXT,
+        manual_price_tracking INTEGER DEFAULT 0,
         notes TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -111,7 +110,35 @@ def _create_tables(conn):
         rate REAL,
         cached_date TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS user_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        date_format TEXT DEFAULT 'DD/MM/YYYY',
+        finnhub_api_key TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS manual_prices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        date TEXT NOT NULL,
+        price REAL NOT NULL,
+        currency TEXT DEFAULT 'EUR',
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticker, date)
+    );
+
+    INSERT OR IGNORE INTO user_settings (id, date_format) VALUES (1, 'DD/MM/YYYY');
     """)
+
+    # Add finnhub_api_key column if it doesn't exist
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(user_settings)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'finnhub_api_key' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN finnhub_api_key TEXT")
+
     conn.commit()
 
 
@@ -161,22 +188,43 @@ def delete_transaction(conn, transaction_id: int):
     return cursor.rowcount > 0
 
 
+def update_transaction(conn, transaction_id: int, data: dict) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE transactions SET
+            date = ?, broker = ?, transaction_type = ?, name = ?, ticker = ?, isin = ?,
+            quantity = ?, price_per_share = ?, currency = ?, fees = ?, taxes = ?,
+            exchange_rate = ?, fees_currency = ?, notes = ?
+        WHERE id = ?
+    """, (
+        data['date'], data['broker'], data['transaction_type'],
+        data['name'], data['ticker'], data['isin'],
+        data['quantity'], data['price_per_share'], data['currency'],
+        data['fees'], data['taxes'], data['exchange_rate'],
+        data['fees_currency'], data.get('notes'),
+        transaction_id
+    ))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 # Dividend operations
 def insert_dividend(conn, data: dict) -> int:
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO dividends (
-            ticker, isin, ex_date, bruto_amount, currency, notes,
-            received, tax_paid, withheld_amount, additional_tax_due, net_received
+            ticker, isin, ex_date, bruto_amount, currency,
+            withheld_amount, net_received, received, tax_paid, additional_tax_due, notes
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data['ticker'], data['isin'], data['ex_date'],
-        data['bruto_amount'], data['currency'], data.get('notes'),
+        data['bruto_amount'], data['currency'],
+        data.get('withheld_tax', 0),  # Map withheld_tax to withheld_amount
+        data.get('net_amount'),  # Map net_amount to net_received
         1 if data.get('received') else 0,
-        1 if data.get('tax_paid') else 0,
-        data.get('withheld_amount'),
-        data.get('additional_tax_due'),
-        data.get('net_received')
+        0,  # tax_paid defaults to False
+        0.0,  # additional_tax_due defaults to 0
+        data.get('notes')
     ))
     conn.commit()
     return cursor.lastrowid
@@ -191,12 +239,51 @@ def get_all_dividends(conn, ticker: str = None):
         )
     else:
         cursor.execute("SELECT * FROM dividends ORDER BY ex_date DESC")
-    return [dict(row) for row in cursor.fetchall()]
+
+    # Map database column names to API field names
+    dividends = []
+    for row in cursor.fetchall():
+        dividend = dict(row)
+        # Map withheld_amount -> withheld_tax
+        if 'withheld_amount' in dividend:
+            dividend['withheld_tax'] = dividend['withheld_amount']
+        # Map net_received -> net_amount
+        if 'net_received' in dividend:
+            dividend['net_amount'] = dividend['net_received']
+        dividends.append(dividend)
+
+    return dividends
 
 
 def delete_dividend(conn, dividend_id: int):
     cursor = conn.cursor()
     cursor.execute("DELETE FROM dividends WHERE id = ?", (dividend_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def update_dividend(conn, dividend_id: int, data: dict) -> bool:
+    cursor = conn.cursor()
+    # Map API field names to database column names
+    withheld = data.get('withheld_tax', 0)
+    net = data.get('net_amount')
+
+    cursor.execute("""
+        UPDATE dividends SET
+            ticker = ?, isin = ?, ex_date = ?, bruto_amount = ?, currency = ?,
+            withheld_amount = ?, net_received = ?, received = ?, tax_paid = ?, additional_tax_due = ?, notes = ?
+        WHERE id = ?
+    """, (
+        data['ticker'], data['isin'], data['ex_date'],
+        data['bruto_amount'], data['currency'],
+        withheld,
+        net,
+        1 if data.get('received') else 0,
+        0,  # tax_paid
+        0.0,  # additional_tax_due
+        data.get('notes'),
+        dividend_id
+    ))
     conn.commit()
     return cursor.rowcount > 0
 
@@ -288,6 +375,106 @@ def get_stock_info(conn, ticker: str):
     return dict(row) if row else None
 
 
+def get_all_stocks(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM stock_info ORDER BY ticker")
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def search_stocks(conn, query: str):
+    """Search stocks by ticker, name, or ISIN."""
+    cursor = conn.cursor()
+    search_term = f"%{query}%"
+
+    # Search in stock_info table
+    cursor.execute("""
+        SELECT DISTINCT
+            ticker, isin, name, asset_type, country, yahoo_ticker, manual_price_tracking
+        FROM stock_info
+        WHERE ticker LIKE ? OR name LIKE ? OR isin LIKE ?
+        ORDER BY
+            CASE
+                WHEN ticker LIKE ? THEN 1
+                WHEN name LIKE ? THEN 2
+                ELSE 3
+            END,
+            name
+        LIMIT 20
+    """, (search_term, search_term, search_term, f"{query}%", f"{query}%"))
+
+    stock_results = [dict(row) for row in cursor.fetchall()]
+
+    # Also search in transactions for stocks not in stock_info
+    cursor.execute("""
+        SELECT DISTINCT ticker, isin, name, currency
+        FROM transactions
+        WHERE (ticker LIKE ? OR name LIKE ? OR isin LIKE ?)
+        AND ticker NOT IN (SELECT ticker FROM stock_info)
+        ORDER BY name
+        LIMIT 10
+    """, (search_term, search_term, search_term))
+
+    tx_results = [{
+        'ticker': row['ticker'],
+        'isin': row['isin'],
+        'name': row['name'],
+        'asset_type': 'STOCK',
+        'country': 'Onbekend',
+        'yahoo_ticker': None,
+        'manual_price_tracking': 0,
+        'from_transactions': True
+    } for row in cursor.fetchall()]
+
+    return stock_results + tx_results
+
+
+def insert_stock_info(conn, data: dict) -> int:
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO stock_info (
+            ticker, isin, name, asset_type, country,
+            custom_dividend_tax_rate, yahoo_ticker, manual_price_tracking, pays_dividend, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data['ticker'], data['isin'], data['name'],
+        data.get('asset_type', 'STOCK'), data.get('country', 'Verenigde Staten'),
+        data.get('custom_dividend_tax_rate'), data.get('yahoo_ticker'),
+        1 if data.get('manual_price_tracking') else 0,
+        1 if data.get('pays_dividend') else 0,
+        data.get('notes')
+    ))
+    conn.commit()
+    return cursor.lastrowid
+
+
+def update_stock_info(conn, ticker: str, data: dict) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE stock_info SET
+            isin = ?, name = ?, asset_type = ?, country = ?,
+            custom_dividend_tax_rate = ?, yahoo_ticker = ?,
+            manual_price_tracking = ?, pays_dividend = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE ticker = ?
+    """, (
+        data['isin'], data['name'], data.get('asset_type', 'STOCK'),
+        data.get('country', 'Verenigde Staten'),
+        data.get('custom_dividend_tax_rate'), data.get('yahoo_ticker'),
+        1 if data.get('manual_price_tracking') else 0,
+        1 if data.get('pays_dividend') else 0,
+        ticker
+    ))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def delete_stock_info(conn, ticker: str) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM stock_info WHERE ticker = ?", (ticker,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 # Price cache operations
 def get_cached_price(conn, ticker: str):
     cursor = conn.cursor()
@@ -333,3 +520,76 @@ def save_exchange_rate_to_cache(conn, from_currency: str, to_currency: str, rate
         VALUES (?, ?, ?)
     """, (pair, rate, date.today().isoformat()))
     conn.commit()
+
+
+# User settings operations
+def get_user_settings(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_settings WHERE id = 1")
+    row = cursor.fetchone()
+    return dict(row) if row else {"id": 1, "date_format": "DD/MM/YYYY"}
+
+
+def update_user_settings(conn, data: dict) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO user_settings (id, date_format, finnhub_api_key, updated_at)
+        VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+    """, (data.get('date_format', 'DD/MM/YYYY'), data.get('finnhub_api_key')))
+    conn.commit()
+    return True
+
+
+# Manual price operations
+def insert_manual_price(conn, data: dict) -> int:
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO manual_prices (ticker, date, price, currency, notes)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        data['ticker'], data['date'], data['price'],
+        data.get('currency', 'EUR'), data.get('notes')
+    ))
+    conn.commit()
+    return cursor.lastrowid
+
+
+def get_manual_prices(conn, ticker: str):
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM manual_prices WHERE ticker = ? ORDER BY date DESC",
+        (ticker,)
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def get_latest_manual_price(conn, ticker: str):
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM manual_prices WHERE ticker = ? ORDER BY date DESC LIMIT 1",
+        (ticker,)
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def delete_manual_price(conn, price_id: int):
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM manual_prices WHERE id = ?", (price_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def update_manual_price(conn, price_id: int, data: dict) -> bool:
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE manual_prices SET
+            date = ?, price = ?, currency = ?, notes = ?
+        WHERE id = ?
+    """, (
+        data['date'], data['price'],
+        data.get('currency', 'EUR'), data.get('notes'),
+        price_id
+    ))
+    conn.commit()
+    return cursor.rowcount > 0

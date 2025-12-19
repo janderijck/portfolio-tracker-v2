@@ -4,7 +4,9 @@ import Dashboard from '@/pages/Dashboard';
 import StockDetail from '@/pages/StockDetail';
 import Dividends from '@/pages/Dividends';
 import Analysis from '@/pages/Analysis';
-import { Moon, Sun, TrendingUp } from 'lucide-react';
+import Settings from '@/pages/Settings';
+import Watchlist from '@/pages/Watchlist';
+import { Moon, Sun, TrendingUp, Settings as SettingsIcon } from 'lucide-react';
 
 function App() {
   const [darkMode, setDarkMode] = useState(() => {
@@ -36,11 +38,17 @@ function App() {
               <a href="/" className="text-sm font-medium hover:text-primary transition-colors">
                 Dashboard
               </a>
+              <a href="/watchlist" className="text-sm font-medium hover:text-primary transition-colors">
+                Watchlist
+              </a>
               <a href="/dividends" className="text-sm font-medium hover:text-primary transition-colors">
                 Dividenden
               </a>
               <a href="/analysis" className="text-sm font-medium hover:text-primary transition-colors">
                 Analyse
+              </a>
+              <a href="/settings" className="text-sm font-medium hover:text-primary transition-colors">
+                <SettingsIcon className="h-5 w-5" />
               </a>
 
               <button
@@ -63,8 +71,10 @@ function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/stock/:ticker" element={<StockDetail />} />
+          <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/dividends" element={<Dividends />} />
           <Route path="/analysis" element={<Analysis />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
     </div>

@@ -1,6 +1,9 @@
-from pydantic import BaseModel, Field
+"""
+Pydantic models for API validation and serialization.
+"""
+from pydantic import BaseModel
 from typing import Optional, List
-from datetime import date, datetime
+from datetime import date
 from enum import Enum
 
 
@@ -9,17 +12,15 @@ class TransactionType(str, Enum):
     SELL = "SELL"
 
 
-class CashTransactionType(str, Enum):
-    DEPOSIT = "DEPOSIT"
-    WITHDRAWAL = "WITHDRAWAL"
-
-
 class AssetType(str, Enum):
     STOCK = "STOCK"
     REIT = "REIT"
 
 
+# =============================================================================
 # Transaction Models
+# =============================================================================
+
 class TransactionBase(BaseModel):
     date: date
     broker: str
@@ -48,19 +49,20 @@ class Transaction(TransactionBase):
         from_attributes = True
 
 
+# =============================================================================
 # Dividend Models
+# =============================================================================
+
 class DividendBase(BaseModel):
     ticker: str
     isin: str
     ex_date: date
     bruto_amount: float
     currency: str = "USD"
-    notes: Optional[str] = None
+    withheld_tax: float = 0.0
+    net_amount: Optional[float] = None
     received: bool = False
-    tax_paid: bool = False
-    withheld_amount: Optional[float] = None
-    additional_tax_due: Optional[float] = None
-    net_received: Optional[float] = None
+    notes: Optional[str] = None
 
 
 class DividendCreate(DividendBase):
@@ -74,40 +76,36 @@ class Dividend(DividendBase):
         from_attributes = True
 
 
-class DividendSummary(BaseModel):
-    total_bruto: float
-    total_tax: float
-    total_netto: float
-    count: int
-    received_count: int
-    currency: str = "EUR"
+# =============================================================================
+# Stock Info Models
+# =============================================================================
+
+class StockInfoBase(BaseModel):
+    ticker: str
+    isin: str
+    name: str
+    asset_type: AssetType = AssetType.STOCK
+    country: str = "Verenigde Staten"
+    yahoo_ticker: Optional[str] = None
+    manual_price_tracking: bool = False
+    pays_dividend: bool = False
 
 
-# Cash Transaction Models
-class CashTransactionBase(BaseModel):
-    date: date
-    broker: str
-    transaction_type: CashTransactionType
-    amount: float
-    currency: str = "EUR"
-    source_amount: Optional[float] = None
-    source_currency: Optional[str] = None
-    exchange_rate: Optional[float] = None
-    notes: Optional[str] = None
-
-
-class CashTransactionCreate(CashTransactionBase):
+class StockInfoCreate(StockInfoBase):
     pass
 
 
-class CashTransaction(CashTransactionBase):
+class StockInfo(StockInfoBase):
     id: int
 
     class Config:
         from_attributes = True
 
 
-# Portfolio Models
+# =============================================================================
+# Portfolio Models (Response only - calculated at runtime)
+# =============================================================================
+
 class PortfolioHolding(BaseModel):
     ticker: str
     isin: str
@@ -115,18 +113,17 @@ class PortfolioHolding(BaseModel):
     broker: str
     quantity: int
     avg_purchase_price: float
-    avg_purchase_price_eur: float
     total_invested: float
     total_invested_eur: float
     total_fees: float
-    total_fees_eur: float
     currency: str
     current_price: Optional[float] = None
     current_value: Optional[float] = None
     gain_loss: Optional[float] = None
     gain_loss_percent: Optional[float] = None
-    dividends_received: float = 0.0
     is_usd_account: bool = False
+    manual_price_date: Optional[date] = None
+    pays_dividend: bool = False
 
 
 class PortfolioSummary(BaseModel):
@@ -134,110 +131,88 @@ class PortfolioSummary(BaseModel):
     total_current_value_eur: float
     total_gain_loss_eur: float
     total_gain_loss_percent: float
-    total_dividends_eur: float
-    # USD section (if applicable)
-    total_invested_usd: Optional[float] = None
-    total_current_value_usd: Optional[float] = None
-    total_gain_loss_usd: Optional[float] = None
-    total_dividends_usd: Optional[float] = None
-    has_usd_holdings: bool = False
 
 
-# Broker Models
-class BrokerSettings(BaseModel):
-    broker_name: str
-    country: str = "België"
-    has_w8ben: bool = False
-    w8ben_expiry_date: Optional[date] = None
-    notes: Optional[str] = None
-
-
-# Stock Info Models
-class StockInfo(BaseModel):
-    ticker: str
-    isin: str
-    name: str
-    asset_type: AssetType = AssetType.STOCK
-    country: str = "Verenigde Staten"
-    custom_dividend_tax_rate: Optional[float] = None
-    yahoo_ticker: Optional[str] = None
-
-
-# Tax Calculation Models
-class TaxCalculation(BaseModel):
-    bruto_amount: float
-    us_withholding: float
-    belgian_tax: float
-    total_tax: float
-    net_amount: float
-    effective_rate: float
-    breakdown: str
-
-
-# Cash Flow Models
-class CashFlowSummary(BaseModel):
-    broker: str
-    deposits: float
-    withdrawals: float
-    net_deposited: float
-    purchases: float
-    sales: float
-    dividends: float
-    expected_cash: float
-    portfolio_value: float
-    total_value: float
-    currency: str = "EUR"
-    # USD specific (for USD accounts)
-    deposits_usd: Optional[float] = None
-    cash_usd: Optional[float] = None
-    fx_gain_loss: Optional[float] = None
-
-
-# FX Analysis Models
-class FXAnalysis(BaseModel):
-    broker: str
-    source_currency: str
-    dest_currency: str
-    original_amount: float
-    current_value_eur: float
-    gain_loss: float
-    avg_rate_at_deposit: float
-    current_rate: float
-
-
-# API Response Models
 class PortfolioResponse(BaseModel):
     holdings: List[PortfolioHolding]
     summary: PortfolioSummary
 
 
-class StockDetailResponse(BaseModel):
-    info: StockInfo
-    holding: Optional[PortfolioHolding]
-    transactions: List[Transaction]
-    dividends: List[Dividend]
-    dividend_summary: DividendSummary
+# =============================================================================
+# Analysis Models (Response only - calculated at runtime)
+# =============================================================================
+
+class PerformanceSummary(BaseModel):
+    total_invested: float
+    current_value: float
+    total_gain_loss: float
+    total_gain_loss_percent: float
+    total_dividends: float
+    total_return: float  # gain_loss + dividends
+    total_return_percent: float
+    best_performer: Optional[str] = None
+    best_performer_percent: Optional[float] = None
+    worst_performer: Optional[str] = None
+    worst_performer_percent: Optional[float] = None
 
 
-# CSV Upload Models
-class CSVUploadResponse(BaseModel):
-    success: bool
-    message: str
-    imported_count: int
-    errors: List[str] = []
+class DividendSummary(BaseModel):
+    total_received: float
+    total_withheld_tax: float
+    total_net: float
+    dividend_yield: float  # dividends / invested
+    by_ticker: dict  # {ticker: {total: x, count: x}}
+    by_year: dict  # {year: total}
 
 
-# Price Models
-class PriceInfo(BaseModel):
+class CostSummary(BaseModel):
+    total_fees: float
+    total_taxes: float
+    transaction_count: int
+    avg_fee_per_transaction: float
+    by_broker: dict  # {broker: {total: x, count: x}}
+    fees_as_percent_of_invested: float
+
+
+class AllocationItem(BaseModel):
+    name: str
+    value: float
+    percentage: float
+
+
+class AllocationSummary(BaseModel):
+    by_broker: List[AllocationItem]
+    by_country: List[AllocationItem]
+    by_asset_type: List[AllocationItem]
+
+
+# =============================================================================
+# User Settings Models
+# =============================================================================
+
+class UserSettings(BaseModel):
+    date_format: str = "DD/MM/YYYY"
+    finnhub_api_key: Optional[str] = None
+
+
+# =============================================================================
+# Manual Price Models
+# =============================================================================
+
+class ManualPriceBase(BaseModel):
     ticker: str
-    current_price: float
-    change_percent: float
-    currency: str
-    updated_at: datetime
+    date: date
+    price: float
+    currency: str = "EUR"
+    notes: Optional[str] = None
 
 
-class ExchangeRate(BaseModel):
-    from_currency: str
-    to_currency: str
-    rate: float
-    updated_at: datetime
+class ManualPriceCreate(ManualPriceBase):
+    pass
+
+
+class ManualPrice(ManualPriceBase):
+    id: int
+
+    class Config:
+        from_attributes = True

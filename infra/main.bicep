@@ -10,10 +10,10 @@ param baseName string = 'portfoliotracker'
 @description('Container image tag')
 param imageTag string = 'latest'
 
-// Unique suffix for globally unique names
-var uniqueSuffix = uniqueString(resourceGroup().id)
+// Unique suffix for globally unique names (shortened for storage account limits)
+var uniqueSuffix = substring(uniqueString(resourceGroup().id), 0, 6)
 var acrName = 'acr${baseName}${uniqueSuffix}'
-var storageAccountName = 'st${baseName}${uniqueSuffix}'
+var storageAccountName = 'stportfolio${uniqueSuffix}'
 var logAnalyticsName = 'log-${baseName}'
 var containerEnvName = 'cae-${baseName}'
 var backendAppName = 'ca-${baseName}-backend'
