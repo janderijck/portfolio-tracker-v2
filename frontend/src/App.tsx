@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Dashboard from '@/pages/Dashboard';
 import StockDetail from '@/pages/StockDetail';
@@ -6,13 +6,37 @@ import Dividends from '@/pages/Dividends';
 import Analysis from '@/pages/Analysis';
 import Settings from '@/pages/Settings';
 import Watchlist from '@/pages/Watchlist';
-import { Moon, Sun, TrendingUp, Settings as SettingsIcon } from 'lucide-react';
+import Import from '@/pages/Import';
+import { saxoCallback } from '@/api/client';
+import { Moon, Sun, TrendingUp, Settings as SettingsIcon, Upload } from 'lucide-react';
 
 function App() {
+  const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : true;
   });
+
+  // Handle Saxo OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) {
+      // Clean URL immediately
+      window.history.replaceState({}, '', window.location.pathname);
+      // Exchange code for tokens
+      saxoCallback(code)
+        .then(() => {
+          localStorage.setItem('saxo_oauth_result', JSON.stringify({ success: true, message: 'Saxo verbinding succesvol!' }));
+          navigate('/settings');
+        })
+        .catch((error) => {
+          const message = error?.response?.data?.detail || 'OAuth koppeling mislukt';
+          localStorage.setItem('saxo_oauth_result', JSON.stringify({ success: false, message }));
+          navigate('/settings');
+        });
+    }
+  }, [navigate]);
 
   useEffect(() => {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
@@ -47,6 +71,10 @@ function App() {
               <a href="/analysis" className="text-sm font-medium hover:text-primary transition-colors">
                 Analyse
               </a>
+              <a href="/import" className="text-sm font-medium hover:text-primary transition-colors flex items-center gap-1">
+                <Upload className="h-4 w-4" />
+                Import
+              </a>
               <a href="/settings" className="text-sm font-medium hover:text-primary transition-colors">
                 <SettingsIcon className="h-5 w-5" />
               </a>
@@ -74,6 +102,7 @@ function App() {
           <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/dividends" element={<Dividends />} />
           <Route path="/analysis" element={<Analysis />} />
+          <Route path="/import" element={<Import />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

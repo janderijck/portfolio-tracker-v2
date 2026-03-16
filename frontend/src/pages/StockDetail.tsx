@@ -1,8 +1,8 @@
 import { useParams } from 'react-router-dom';
-import { useTransactions, useDividends, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, useCreateDividend, useUpdateDividend, useDeleteDividend, useBrokers, useManualPrices, useCreateManualPrice, useDeleteManualPrice, useStockDetail, useUpdateStock, useStockHistory } from '@/hooks/usePortfolio';
+import { useTransactions, useDividends, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, useCreateDividend, useUpdateDividend, useDeleteDividend, useBrokers, useManualPrices, useCreateManualPrice, useDeleteManualPrice, useStockDetail, useUpdateStock, useStockHistory, useStockAlerts, useCreateAlert, useUpdateAlert, useDeleteAlert } from '@/hooks/usePortfolio';
 import { useState } from 'react';
-import { Loader2, Plus, Trash2, Pencil, X, Check, DollarSign, Download, Settings, TrendingUp } from 'lucide-react';
-import type { Transaction, Dividend } from '@/types';
+import { Loader2, Plus, Trash2, Pencil, X, Check, DollarSign, Download, Settings, TrendingUp, Calendar, Bell, ToggleLeft, ToggleRight } from 'lucide-react';
+import type { Transaction, Dividend, StockAlertCreate } from '@/types';
 import { formatCurrency, formatDate, getTodayISO, getCurrencySymbol } from '@/utils/formatting';
 import DateInput from '@/components/DateInput';
 import { fetchDividendHistory } from '@/api/client';
@@ -27,6 +27,22 @@ export default function StockDetail() {
   const deleteManualPrice = useDeleteManualPrice();
   const updateStock = useUpdateStock();
 
+  const { data: stockAlerts } = useStockAlerts(ticker || '');
+  const createAlertMutation = useCreateAlert();
+  const updateAlertMutation = useUpdateAlert();
+  const deleteAlertMutation = useDeleteAlert();
+
+  const [showAlertForm, setShowAlertForm] = useState(false);
+  const [alertForm, setAlertForm] = useState<{
+    alert_type: StockAlertCreate['alert_type'];
+    period: string;
+    threshold_price: string;
+  }>({
+    alert_type: 'period_high',
+    period: '52w',
+    threshold_price: '',
+  });
+
   const [showTxForm, setShowTxForm] = useState(false);
   const [showDivForm, setShowDivForm] = useState(false);
   const [showPriceForm, setShowPriceForm] = useState(false);
@@ -35,6 +51,9 @@ export default function StockDetail() {
   const [editingDivId, setEditingDivId] = useState<number | null>(null);
   const [fetchingDividends, setFetchingDividends] = useState(false);
   const [historyPeriod, setHistoryPeriod] = useState('1y');
+
+  // Inline editing state
+  const [inlineEdit, setInlineEdit] = useState<{ txId: number; field: string; value: string } | null>(null);
 
   // Check if manual price tracking is enabled
   const isManualPriceTracking = stockDetail?.info?.manual_price_tracking;
@@ -112,6 +131,7 @@ export default function StockDetail() {
   const [priceForm, setPriceForm] = useState(getEmptyPriceForm());
 
   const [stockSettingsForm, setStockSettingsForm] = useState({
+    yahoo_ticker: '',
     manual_price_tracking: false,
     pays_dividend: false,
   });
@@ -127,7 +147,7 @@ export default function StockDetail() {
           name: stockDetail.info.name,
           asset_type: stockDetail.info.asset_type,
           country: stockDetail.info.country,
-          yahoo_ticker: stockDetail.info.yahoo_ticker,
+          yahoo_ticker: stockSettingsForm.yahoo_ticker || null,
           manual_price_tracking: stockSettingsForm.manual_price_tracking,
           pays_dividend: stockSettingsForm.pays_dividend,
         },
@@ -171,6 +191,37 @@ export default function StockDetail() {
       notes: tx.notes,
     });
     setShowTxForm(false);
+  };
+
+  const saveInlineEdit = async () => {
+    if (!inlineEdit) return;
+    const tx = transactions?.find((t) => t.id === inlineEdit.txId);
+    if (!tx) return;
+
+    const updated: Record<string, any> = { ...tx };
+    const { field, value } = inlineEdit;
+
+    if (field === 'date') {
+      updated.date = value;
+    } else if (field === 'quantity' || field === 'price_per_share' || field === 'fees' || field === 'taxes' || field === 'exchange_rate') {
+      updated[field] = parseFloat(value) || 0;
+    } else if (field === 'broker' || field === 'transaction_type') {
+      updated[field] = value;
+    }
+
+    // Remove 'id' from payload
+    const { id, ...payload } = updated;
+    await updateTransaction.mutateAsync({ id: inlineEdit.txId, data: payload as any });
+    setInlineEdit(null);
+  };
+
+  const handleInlineKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      saveInlineEdit();
+    } else if (e.key === 'Escape') {
+      setInlineEdit(null);
+    }
   };
 
   const handleCreateDividend = async (e: React.FormEvent) => {
@@ -243,6 +294,94 @@ export default function StockDetail() {
     }
   };
 
+  const alertTypeOptions = [
+    { value: 'period_high', label: '52-week hoog', period: '52w' },
+    { value: 'period_high_26', label: '26-week hoog', period: '26w' },
+    { value: 'period_high_13', label: '13-week hoog', period: '13w' },
+    { value: 'period_low', label: '52-week laag', period: '52w' },
+    { value: 'period_low_26', label: '26-week laag', period: '26w' },
+    { value: 'period_low_13', label: '13-week laag', period: '13w' },
+    { value: 'above', label: 'Prijs boven' },
+    { value: 'below', label: 'Prijs onder' },
+  ] as const;
+
+  const handleAlertTypeChange = (combined: string) => {
+    const option = alertTypeOptions.find(o => o.value === combined);
+    if (!option) return;
+
+    const baseType = combined.startsWith('period_high') ? 'period_high'
+      : combined.startsWith('period_low') ? 'period_low'
+      : combined as StockAlertCreate['alert_type'];
+
+    const period = 'period' in option ? option.period : '';
+
+    setAlertForm({
+      alert_type: baseType,
+      period,
+      threshold_price: alertForm.threshold_price,
+    });
+  };
+
+  const handleCreateAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ticker) return;
+
+    const data: StockAlertCreate = {
+      ticker,
+      alert_type: alertForm.alert_type,
+      period: alertForm.alert_type.startsWith('period_') ? alertForm.period : null,
+      threshold_price: ['above', 'below'].includes(alertForm.alert_type)
+        ? parseFloat(alertForm.threshold_price) || null
+        : null,
+      enabled: true,
+    };
+
+    await createAlertMutation.mutateAsync(data);
+    setShowAlertForm(false);
+    setAlertForm({ alert_type: 'period_high', period: '52w', threshold_price: '' });
+  };
+
+  const handleToggleAlert = async (alert: { id: number; ticker: string; alert_type: StockAlertCreate['alert_type']; period?: string | null; threshold_price?: number | null; enabled: boolean }) => {
+    await updateAlertMutation.mutateAsync({
+      alertId: alert.id,
+      data: {
+        ticker: alert.ticker,
+        alert_type: alert.alert_type,
+        period: alert.period,
+        threshold_price: alert.threshold_price,
+        enabled: !alert.enabled,
+      },
+    });
+  };
+
+  const getAlertDescription = (alert: { alert_type: string; period?: string | null; threshold_price?: number | null }): string => {
+    const periodLabels: Record<string, string> = { '52w': '52-week', '26w': '26-week', '13w': '13-week' };
+    const periodLabel = alert.period ? periodLabels[alert.period] || alert.period : '';
+
+    switch (alert.alert_type) {
+      case 'period_high': return `${periodLabel} hoog`;
+      case 'period_low': return `${periodLabel} laag`;
+      case 'above': return `Prijs boven ${getCurrencySymbol(firstTx?.currency || 'EUR')}${alert.threshold_price?.toFixed(2) || '?'}`;
+      case 'below': return `Prijs onder ${getCurrencySymbol(firstTx?.currency || 'EUR')}${alert.threshold_price?.toFixed(2) || '?'}`;
+      default: return alert.alert_type;
+    }
+  };
+
+  // Compute selected combined value for alert type dropdown
+  const getAlertFormCombinedValue = (): string => {
+    if (alertForm.alert_type === 'period_high') {
+      if (alertForm.period === '26w') return 'period_high_26';
+      if (alertForm.period === '13w') return 'period_high_13';
+      return 'period_high';
+    }
+    if (alertForm.alert_type === 'period_low') {
+      if (alertForm.period === '26w') return 'period_low_26';
+      if (alertForm.period === '13w') return 'period_low_13';
+      return 'period_low';
+    }
+    return alertForm.alert_type;
+  };
+
   if (loadingTx || loadingDiv) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -270,6 +409,7 @@ export default function StockDetail() {
               onClick={() => {
                 setShowStockSettings(true);
                 setStockSettingsForm({
+                  yahoo_ticker: stockDetail?.info?.yahoo_ticker || '',
                   manual_price_tracking: stockDetail?.info?.manual_price_tracking || false,
                   pays_dividend: stockDetail?.info?.pays_dividend || false,
                 });
@@ -283,6 +423,19 @@ export default function StockDetail() {
 
         {showStockSettings && stockDetail?.info ? (
           <form onSubmit={handleUpdateStockSettings} className="p-6 bg-muted/50 space-y-4">
+            <div>
+              <label htmlFor="yahoo_ticker" className="block text-sm font-medium mb-1">
+                Yahoo Ticker
+              </label>
+              <input
+                type="text"
+                id="yahoo_ticker"
+                value={stockSettingsForm.yahoo_ticker}
+                onChange={(e) => setStockSettingsForm({ ...stockSettingsForm, yahoo_ticker: e.target.value })}
+                className="w-full max-w-xs px-3 py-2 rounded-md border bg-background"
+                placeholder="bijv. ENGI.PA"
+              />
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -327,6 +480,12 @@ export default function StockDetail() {
         ) : (
           <div className="p-6 space-y-2">
             <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">
+                Yahoo Ticker: <strong>{stockDetail?.info?.yahoo_ticker || '—'}</strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
               <Check className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm">
                 Handmatig koersen bijhouden: <strong>{stockDetail?.info?.manual_price_tracking ? 'Ja' : 'Nee'}</strong>
@@ -340,6 +499,131 @@ export default function StockDetail() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Price Alerts */}
+      <div className="bg-card rounded-lg border">
+        <div className="p-6 border-b flex justify-between items-center">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            Prijsalerts
+          </h3>
+          <button
+            onClick={() => {
+              setShowAlertForm(!showAlertForm);
+              setAlertForm({ alert_type: 'period_high', period: '52w', threshold_price: '' });
+            }}
+            className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" /> Toevoegen
+          </button>
+        </div>
+
+        {showAlertForm && (
+          <form onSubmit={handleCreateAlert} className="p-6 border-b bg-muted/50 space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1">Alert type</label>
+                <select
+                  value={getAlertFormCombinedValue()}
+                  onChange={(e) => handleAlertTypeChange(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md border bg-background"
+                >
+                  {alertTypeOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              {['above', 'below'].includes(alertForm.alert_type) && (
+                <div>
+                  <label className="block text-xs font-medium mb-1">Drempelprijs</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={alertForm.threshold_price}
+                    onChange={(e) => setAlertForm({ ...alertForm, threshold_price: e.target.value })}
+                    className="w-full px-3 py-2 rounded-md border bg-background"
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={createAlertMutation.isPending}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
+              >
+                {createAlertMutation.isPending ? 'Opslaan...' : 'Opslaan'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAlertForm(false)}
+                className="px-4 py-2 border rounded-md hover:bg-accent"
+              >
+                Annuleren
+              </button>
+            </div>
+          </form>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="text-left p-4 font-medium">Alert</th>
+                <th className="text-center p-4 font-medium">Actief</th>
+                <th className="text-left p-4 font-medium">Laatst getriggerd</th>
+                <th className="p-4"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {stockAlerts?.map((alert) => (
+                <tr key={alert.id} className="border-b hover:bg-muted/50">
+                  <td className="p-4 font-medium">
+                    {getAlertDescription(alert)}
+                  </td>
+                  <td className="p-4 text-center">
+                    <button
+                      onClick={() => handleToggleAlert(alert)}
+                      disabled={updateAlertMutation.isPending}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                      title={alert.enabled ? 'Uitschakelen' : 'Inschakelen'}
+                    >
+                      {alert.enabled ? (
+                        <ToggleRight className="h-6 w-6 text-green-500" />
+                      ) : (
+                        <ToggleLeft className="h-6 w-6 text-muted-foreground" />
+                      )}
+                    </button>
+                  </td>
+                  <td className="p-4 text-muted-foreground text-sm">
+                    {alert.last_triggered_at
+                      ? new Date(alert.last_triggered_at).toLocaleString('nl-BE')
+                      : '—'}
+                  </td>
+                  <td className="p-4">
+                    <button
+                      onClick={() => ticker && deleteAlertMutation.mutate({ alertId: alert.id, ticker })}
+                      className="text-destructive hover:text-destructive/80"
+                      title="Verwijderen"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {(!stockAlerts || stockAlerts.length === 0) && (
+                <tr>
+                  <td colSpan={4} className="p-4 text-center text-muted-foreground">
+                    Geen prijsalerts ingesteld
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Price History Chart */}
@@ -409,6 +693,39 @@ export default function StockDetail() {
         </div>
       </div>
 
+      {/* Upcoming Ex-Dividend Dates */}
+      {stockDetail?.upcoming_dividends && stockDetail.upcoming_dividends.length > 0 && (
+        <div className="bg-card rounded-lg border">
+          <div className="p-6 border-b">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Aankomende Ex-Dividend Datums
+            </h3>
+          </div>
+          <div className="p-6">
+            <div className="flex flex-wrap gap-3">
+              {stockDetail.upcoming_dividends.map((ud: { ex_date: string; estimated_per_share: number; currency: string; frequency: string }, idx: number) => (
+                <div key={idx} className="flex items-center gap-3 px-4 py-3 bg-muted/50 rounded-lg border">
+                  <div>
+                    <div className="font-medium">{formatDate(ud.ex_date)}</div>
+                    <div className="text-xs text-muted-foreground">{ud.frequency}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-medium text-green-600 dark:text-green-400">
+                      {getCurrencySymbol(ud.currency)}{ud.estimated_per_share.toFixed(4)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">per aandeel</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              Geschatte datums en bedragen op basis van historische dividendpatronen.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Transactions */}
       <div className="bg-card rounded-lg border">
         <div className="p-6 border-b flex justify-between items-center">
@@ -451,8 +768,9 @@ export default function StockDetail() {
                 <input
                   type="number"
                   value={txForm.quantity || ''}
-                  onChange={(e) => setTxForm({ ...txForm, quantity: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => setTxForm({ ...txForm, quantity: parseFloat(e.target.value) || 0 })}
                   className="w-full px-3 py-2 rounded-md border bg-background"
+                  step="any"
                 />
               </div>
               <div>
@@ -565,38 +883,122 @@ export default function StockDetail() {
               </tr>
             </thead>
             <tbody>
-              {transactions?.map((tx) => (
-                <tr key={tx.id} className="border-b hover:bg-muted/50">
-                  <td className="p-4">{formatDate(tx.date)}</td>
-                  <td className="p-4">
-                    <span className={tx.transaction_type === 'BUY' ? 'text-green-500' : 'text-red-500'}>
-                      {tx.transaction_type === 'BUY' ? 'Koop' : 'Verkoop'}
-                    </span>
-                  </td>
-                  <td className="text-right p-4">{tx.quantity}</td>
-                  <td className="text-right p-4">{formatCurrency(tx.price_per_share, tx.currency)}</td>
-                  <td className="text-right p-4">{formatCurrency(tx.quantity * tx.price_per_share, tx.currency)}</td>
-                  <td className="text-right p-4">{formatCurrency(tx.fees, 'EUR')}</td>
-                  <td className="text-right p-4">{formatCurrency(tx.taxes, 'EUR')}</td>
-                  <td className="p-4">{tx.broker}</td>
-                  <td className="p-4">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => startEditTransaction(tx)}
-                        className="text-muted-foreground hover:text-foreground"
+              {transactions?.map((tx) => {
+                const isEditing = (field: string) => inlineEdit?.txId === tx.id && inlineEdit?.field === field;
+                const editableCell = (field: string, displayValue: React.ReactNode, align: string = 'left', inputType: string = 'text') => {
+                  if (isEditing(field)) {
+                    return (
+                      <td className={`p-1 ${align === 'right' ? 'text-right' : ''}`}>
+                        <input
+                          type={inputType}
+                          value={inlineEdit!.value}
+                          onChange={(e) => setInlineEdit({ ...inlineEdit!, value: e.target.value })}
+                          onKeyDown={handleInlineKeyDown}
+                          onBlur={saveInlineEdit}
+                          autoFocus
+                          step={inputType === 'number' ? 'any' : undefined}
+                          className={`w-full px-2 py-1 rounded border bg-background text-sm ${align === 'right' ? 'text-right' : ''}`}
+                        />
+                      </td>
+                    );
+                  }
+                  return (
+                    <td
+                      className={`p-4 cursor-pointer hover:bg-primary/10 rounded ${align === 'right' ? 'text-right' : ''}`}
+                      onClick={() => setInlineEdit({ txId: tx.id, field, value: String((tx as any)[field] ?? '') })}
+                    >
+                      {displayValue}
+                    </td>
+                  );
+                };
+
+                return (
+                  <tr key={tx.id} className="border-b hover:bg-muted/50">
+                    {editableCell('date', formatDate(tx.date), 'left', 'date')}
+                    {isEditing('transaction_type') ? (
+                      <td className="p-1">
+                        <select
+                          value={inlineEdit!.value}
+                          onChange={(e) => {
+                            setInlineEdit({ ...inlineEdit!, value: e.target.value });
+                            // Auto-save on select change
+                            const updated: Record<string, any> = { ...tx };
+                            updated.transaction_type = e.target.value;
+                            const { id, ...payload } = updated;
+                            updateTransaction.mutateAsync({ id: tx.id, data: payload as any });
+                            setInlineEdit(null);
+                          }}
+                          onBlur={() => setInlineEdit(null)}
+                          autoFocus
+                          className="w-full px-2 py-1 rounded border bg-background text-sm"
+                        >
+                          <option value="BUY">Koop</option>
+                          <option value="SELL">Verkoop</option>
+                        </select>
+                      </td>
+                    ) : (
+                      <td
+                        className="p-4 cursor-pointer hover:bg-primary/10 rounded"
+                        onClick={() => setInlineEdit({ txId: tx.id, field: 'transaction_type', value: tx.transaction_type })}
                       >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => deleteTransaction.mutate(tx.id)}
-                        className="text-destructive hover:text-destructive/80"
+                        <span className={tx.transaction_type === 'BUY' ? 'text-green-500' : 'text-red-500'}>
+                          {tx.transaction_type === 'BUY' ? 'Koop' : 'Verkoop'}
+                        </span>
+                      </td>
+                    )}
+                    {editableCell('quantity', tx.quantity, 'right', 'number')}
+                    {editableCell('price_per_share', formatCurrency(tx.price_per_share, tx.currency), 'right', 'number')}
+                    <td className="text-right p-4 text-muted-foreground">{formatCurrency(tx.quantity * tx.price_per_share, tx.currency)}</td>
+                    {editableCell('fees', formatCurrency(tx.fees, 'EUR'), 'right', 'number')}
+                    {editableCell('taxes', formatCurrency(tx.taxes, 'EUR'), 'right', 'number')}
+                    {isEditing('broker') ? (
+                      <td className="p-1">
+                        <select
+                          value={inlineEdit!.value}
+                          onChange={(e) => {
+                            const updated: Record<string, any> = { ...tx };
+                            updated.broker = e.target.value;
+                            const { id, ...payload } = updated;
+                            updateTransaction.mutateAsync({ id: tx.id, data: payload as any });
+                            setInlineEdit(null);
+                          }}
+                          onBlur={() => setInlineEdit(null)}
+                          autoFocus
+                          className="w-full px-2 py-1 rounded border bg-background text-sm"
+                        >
+                          {brokers?.map((b) => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </td>
+                    ) : (
+                      <td
+                        className="p-4 cursor-pointer hover:bg-primary/10 rounded"
+                        onClick={() => setInlineEdit({ txId: tx.id, field: 'broker', value: tx.broker })}
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {tx.broker}
+                      </td>
+                    )}
+                    <td className="p-4">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => startEditTransaction(tx)}
+                          className="text-muted-foreground hover:text-foreground"
+                          title="Alles bewerken"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteTransaction.mutate(tx.id)}
+                          className="text-destructive hover:text-destructive/80"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -41,9 +41,10 @@ export interface Dividend {
   net_amount: number | null;
   received: boolean;
   notes: string | null;
+  stock_name: string | null;
 }
 
-export type DividendCreate = Omit<Dividend, 'id'>;
+export type DividendCreate = Omit<Dividend, 'id' | 'stock_name'>;
 
 // =============================================================================
 // Stock Info Types
@@ -54,7 +55,7 @@ export interface StockInfo {
   ticker: string;
   isin: string;
   name: string;
-  asset_type: 'STOCK' | 'REIT';
+  asset_type: 'STOCK' | 'REIT' | 'FUND';
   country: string;
   yahoo_ticker: string | null;
   manual_price_tracking: boolean;
@@ -80,8 +81,10 @@ export interface PortfolioHolding {
   currency: string;
   current_price: number | null;
   current_value: number | null;
+  current_value_eur: number | null;
   gain_loss: number | null;
   gain_loss_percent: number | null;
+  change_percent: number | null;
   is_usd_account: boolean;
   manual_price_date: string | null;
   pays_dividend: boolean;
@@ -97,6 +100,17 @@ export interface PortfolioSummary {
 export interface PortfolioResponse {
   holdings: PortfolioHolding[];
   summary: PortfolioSummary;
+  prices_updated_at?: string;
+}
+
+// =============================================================================
+// Movers Types (calculated at runtime)
+// =============================================================================
+
+export interface MoverItem {
+  ticker: string;
+  name: string;
+  change_percent: number;
 }
 
 // =============================================================================
@@ -154,6 +168,8 @@ export interface AllocationSummary {
 export interface UserSettings {
   date_format: string;
   finnhub_api_key?: string | null;
+  openfigi_api_key?: string | null;
+  saxo_connected?: boolean;
 }
 
 // =============================================================================
@@ -170,3 +186,294 @@ export interface ManualPrice {
 }
 
 export type ManualPriceCreate = Omit<ManualPrice, 'id'>;
+
+// =============================================================================
+// Import Types
+// =============================================================================
+
+export interface ParsedTransaction {
+  date: string;
+  broker: string;
+  transaction_type: 'BUY' | 'SELL';
+  name: string;
+  ticker: string;
+  isin: string;
+  quantity: number;
+  price_per_share: number;
+  currency: string;
+  fees: number;
+  taxes: number;
+  exchange_rate: number;
+  fees_currency: string;
+  notes: string | null;
+  source_id: string | null;
+  is_duplicate: boolean;
+}
+
+export interface ParsedDividend {
+  ticker: string;
+  isin: string;
+  ex_date: string;
+  bruto_amount: number;
+  currency: string;
+  withheld_tax: number;
+  net_amount: number | null;
+  received: boolean;
+  notes: string | null;
+  is_duplicate: boolean;
+}
+
+export interface ParsedCashTransaction {
+  date: string;
+  broker: string;
+  transaction_type: string;
+  amount: number;
+  currency: string;
+  source_amount: number | null;
+  source_currency: string | null;
+  exchange_rate: number | null;
+  notes: string | null;
+  is_duplicate: boolean;
+}
+
+export interface ParsedStock {
+  ticker: string;
+  isin: string;
+  name: string;
+  asset_type: string;
+  currency: string;
+  yahoo_ticker: string | null;
+  country: string;
+  manual_price_tracking?: boolean;
+}
+
+export interface ImportPreviewSummary {
+  total_transactions: number;
+  total_dividends: number;
+  total_cash: number;
+  total_stocks: number;
+  duplicate_transactions: number;
+  duplicate_dividends: number;
+}
+
+export interface ImportPreviewResponse {
+  broker: string;
+  transactions: ParsedTransaction[];
+  dividends: ParsedDividend[];
+  cash_transactions: ParsedCashTransaction[];
+  stocks: ParsedStock[];
+  warnings: string[];
+  skipped_rows: number;
+  summary: ImportPreviewSummary;
+}
+
+export interface ImportConfirmPayload {
+  transactions: ParsedTransaction[];
+  dividends: ParsedDividend[];
+  cash_transactions: ParsedCashTransaction[];
+  stocks: ParsedStock[];
+}
+
+export interface ImportConfirmResponse {
+  message: string;
+  imported: {
+    transactions: number;
+    dividends: number;
+    cash_transactions: number;
+    stocks: number;
+  };
+  errors?: string[];
+}
+
+// =============================================================================
+// Dividend Calendar Types
+// =============================================================================
+
+export interface DividendForecastItem {
+  ticker: string;
+  isin: string;
+  ex_date: string;
+  estimated_amount: number;
+  currency: string;
+  frequency: string;
+  is_forecast: boolean;
+  stock_name: string | null;
+}
+
+export interface MonthlyDividendSummary {
+  month: string;
+  received: number;
+  forecasted: number;
+}
+
+export interface DividendCalendarResponse {
+  historical: Dividend[];
+  forecasted: DividendForecastItem[];
+  monthly_summary: MonthlyDividendSummary[];
+}
+
+// =============================================================================
+// Broker Cash Types
+// =============================================================================
+
+export interface BrokerCashBalance {
+  currency: string;
+  balance: number;
+}
+
+export interface BrokerDetail {
+  broker_name: string;
+  country: string;
+  has_w8ben: boolean;
+  w8ben_expiry_date: string | null;
+  cash_balances: BrokerCashBalance[];
+  account_type: string;
+  notes: string | null;
+}
+
+export interface BrokerCashUpdate {
+  currency: string;
+  balance: number;
+}
+
+export interface BrokerCashItem {
+  broker_name: string;
+  cash_balance: number;
+  cash_currency: string;
+  cash_balance_eur: number;
+}
+
+export interface CashSummary {
+  total_cash_eur: number;
+  per_broker: BrokerCashItem[];
+}
+
+// =============================================================================
+// Saxo Configuration Types
+// =============================================================================
+
+export interface SaxoConfig {
+  client_id: string;
+  client_secret: string;
+  redirect_uri: string;
+  auth_url: string;
+  token_url: string;
+}
+
+// =============================================================================
+// Saxo Integration Types
+// =============================================================================
+
+export interface SaxoPosition {
+  uic: number;
+  isin?: string | null;
+  name: string;
+  quantity: number;
+  current_price: number;
+  current_value: number;
+  currency: string;
+  pnl?: number | null;
+  pnl_percent?: number | null;
+  matched_ticker?: string | null;
+  symbol?: string | null;
+  exchange_id?: string | null;
+}
+
+export interface SaxoBalance {
+  total_value: number;
+  cash_balance: number;
+  positions_value: number;
+  unrealized_pnl: number;
+  currency: string;
+}
+
+export interface SaxoDividendSyncResult {
+  imported: number;
+  skipped_duplicate: number;
+  skipped_unmatched: number;
+  errors: string[];
+  ca_endpoint_available: boolean;
+}
+
+export interface SaxoSyncResult {
+  positions: SaxoPosition[];
+  balance: SaxoBalance;
+  matched: number;
+  unmatched: number;
+  missing_local: number;
+  dividends?: SaxoDividendSyncResult | null;
+}
+
+export interface SaxoStatus {
+  connected: boolean;
+  has_token: boolean;
+  cached_prices: number;
+  last_sync: string | null;
+}
+
+export interface SaxoImportRequest {
+  positions: SaxoPosition[];
+}
+
+export interface SaxoImportResult {
+  imported_stocks: number;
+  imported_transactions: number;
+  skipped: number;
+  errors: string[];
+}
+
+// =============================================================================
+// IBKR Integration Types
+// =============================================================================
+
+export interface IBKRConfig {
+  flex_token: string;
+  query_id: string;
+}
+
+export interface IBKRSyncResult {
+  transactions_imported: number;
+  dividends_imported: number;
+  cash_imported: number;
+  stocks_created: number;
+  positions_found: number;
+  warnings: string[];
+  errors: string[];
+}
+
+export interface IBKRStatus {
+  configured: boolean;
+  has_token: boolean;
+  has_query_id: boolean;
+  last_sync: string | null;
+}
+
+// =============================================================================
+// Telegram & Alert Types
+// =============================================================================
+
+export interface TelegramConfig {
+  bot_token: string;
+  chat_id: string;
+}
+
+export interface StockAlertCreate {
+  ticker: string;
+  alert_type: 'period_high' | 'period_low' | 'above' | 'below';
+  period?: string | null;
+  threshold_price?: number | null;
+  enabled: boolean;
+}
+
+export interface StockAlert extends StockAlertCreate {
+  id: number;
+  last_triggered_at: string | null;
+  created_at: string | null;
+}
+
+export interface AlertCheckResult {
+  checked: number;
+  triggered: number;
+  errors: string[];
+}
+

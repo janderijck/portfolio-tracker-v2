@@ -12,6 +12,7 @@ import type {
   DividendCreate,
   StockInfo,
   StockInfoCreate,
+  MoverItem,
   PerformanceSummary,
   DividendSummary,
   CostSummary,
@@ -19,6 +20,27 @@ import type {
   UserSettings,
   ManualPrice,
   ManualPriceCreate,
+  ImportPreviewResponse,
+  ImportConfirmPayload,
+  ImportConfirmResponse,
+  DividendCalendarResponse,
+  BrokerDetail,
+  BrokerCashUpdate,
+  CashSummary,
+  SaxoConfig,
+  SaxoPosition,
+  SaxoBalance,
+  SaxoSyncResult,
+  SaxoStatus,
+  SaxoImportRequest,
+  SaxoImportResult,
+  IBKRConfig,
+  IBKRSyncResult,
+  IBKRStatus,
+  TelegramConfig,
+  StockAlert,
+  StockAlertCreate,
+  AlertCheckResult,
 } from '@/types';
 
 // Use environment variable for API URL, fallback to /api for local development
@@ -37,6 +59,16 @@ const api = axios.create({
 
 export const getPortfolio = async (): Promise<PortfolioResponse> => {
   const { data } = await api.get('/portfolio');
+  return data;
+};
+
+export const refreshPrices = async (): Promise<{ refreshed: number; total: number; errors: string[] }> => {
+  const { data } = await api.post('/prices/refresh');
+  return data;
+};
+
+export const getMovers = async (period: string): Promise<MoverItem[]> => {
+  const { data } = await api.get('/movers', { params: { period } });
   return data;
 };
 
@@ -90,6 +122,11 @@ export const deleteDividend = async (id: number): Promise<void> => {
 
 export const fetchDividendHistory = async (ticker: string): Promise<{ message: string; count: number; total_found: number }> => {
   const { data } = await api.post(`/dividends/fetch-history/${ticker}`);
+  return data;
+};
+
+export const getDividendCalendar = async (): Promise<DividendCalendarResponse> => {
+  const { data } = await api.get('/dividends/calendar');
   return data;
 };
 
@@ -149,6 +186,24 @@ export const createBroker = async (name: string): Promise<void> => {
   await api.post('/brokers', { broker_name: name });
 };
 
+export const getBrokerDetails = async (): Promise<BrokerDetail[]> => {
+  const { data } = await api.get('/brokers/details');
+  return data;
+};
+
+export const updateBrokerCash = async (brokerName: string, cashData: BrokerCashUpdate): Promise<void> => {
+  await api.put(`/brokers/${encodeURIComponent(brokerName)}/cash`, cashData);
+};
+
+export const updateBrokerAccountType = async (brokerName: string, accountType: string): Promise<void> => {
+  await api.put(`/brokers/${encodeURIComponent(brokerName)}/account-type`, { account_type: accountType });
+};
+
+export const getCashSummary = async (): Promise<CashSummary> => {
+  const { data } = await api.get('/brokers/cash-summary');
+  return data;
+};
+
 // =============================================================================
 // Analysis
 // =============================================================================
@@ -173,6 +228,12 @@ export const getAllocationSummary = async (): Promise<AllocationSummary> => {
   return data;
 };
 
+export const getPortfolioEvolution = async (broker?: string): Promise<{ date: string; gain: number; invested: number; value: number }[]> => {
+  const params = broker ? { broker } : {};
+  const { data } = await api.get('/analysis/portfolio-evolution', { params });
+  return data;
+};
+
 // =============================================================================
 // User Settings
 // =============================================================================
@@ -189,6 +250,11 @@ export const updateSettings = async (settings: UserSettings): Promise<UserSettin
 
 export const testFinnhubApi = async (): Promise<{ success: boolean; message: string; test_data?: any }> => {
   const { data } = await api.post('/settings/test-finnhub');
+  return data;
+};
+
+export const resetDatabase = async (): Promise<{ message: string }> => {
+  const { data } = await api.delete('/database/reset');
   return data;
 };
 
@@ -226,6 +292,172 @@ export interface HistoricalDataPoint {
 
 export const getStockHistory = async (ticker: string, period: string = '1y'): Promise<HistoricalDataPoint[]> => {
   const { data } = await api.get(`/stocks/${ticker}/history`, { params: { period } });
+  return data;
+};
+
+// =============================================================================
+// Import
+// =============================================================================
+
+export const uploadImportFile = async (file: File, broker?: string): Promise<ImportPreviewResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (broker) {
+    formData.append('broker', broker);
+  }
+  const { data } = await api.post('/import/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+};
+
+export const confirmImport = async (payload: ImportConfirmPayload): Promise<ImportConfirmResponse> => {
+  const { data } = await api.post('/import/confirm', payload);
+  return data;
+};
+
+// =============================================================================
+// Saxo Integration
+// =============================================================================
+
+export const getSaxoConfig = async (): Promise<SaxoConfig> => {
+  const { data } = await api.get('/saxo/config');
+  return data;
+};
+
+export const saveSaxoConfig = async (config: SaxoConfig): Promise<SaxoConfig> => {
+  const { data } = await api.put('/saxo/config', config);
+  return data;
+};
+
+export const getSaxoAuthUrl = async (): Promise<{ url: string; state: string }> => {
+  const { data } = await api.get('/saxo/auth-url');
+  return data;
+};
+
+export const saxoCallback = async (code: string): Promise<{ success: boolean; message: string; account?: any }> => {
+  const { data } = await api.post('/saxo/callback', { code });
+  return data;
+};
+
+export const disconnectSaxo = async (): Promise<{ success: boolean }> => {
+  const { data } = await api.post('/saxo/disconnect');
+  return data;
+};
+
+export const testSaxoConnection = async (): Promise<{ success: boolean; message: string; account?: any }> => {
+  const { data } = await api.post('/saxo/test');
+  return data;
+};
+
+export const getSaxoPositions = async (): Promise<SaxoPosition[]> => {
+  const { data } = await api.get('/saxo/positions');
+  return data;
+};
+
+export const getSaxoBalances = async (): Promise<SaxoBalance> => {
+  const { data } = await api.get('/saxo/balances');
+  return data;
+};
+
+export const syncSaxo = async (): Promise<SaxoSyncResult> => {
+  const { data } = await api.post('/saxo/sync');
+  return data;
+};
+
+export const importSaxoPositions = async (payload: SaxoImportRequest): Promise<SaxoImportResult> => {
+  const { data } = await api.post('/saxo/import-positions', payload);
+  return data;
+};
+
+export const getSaxoStatus = async (): Promise<SaxoStatus> => {
+  const { data } = await api.get('/saxo/status');
+  return data;
+};
+
+// =============================================================================
+// IBKR Integration
+// =============================================================================
+
+export const getIBKRConfig = async (): Promise<IBKRConfig> => {
+  const { data } = await api.get('/ibkr/config');
+  return data;
+};
+
+export const saveIBKRConfig = async (config: IBKRConfig): Promise<IBKRConfig> => {
+  const { data } = await api.put('/ibkr/config', config);
+  return data;
+};
+
+export const testIBKRConnection = async (): Promise<{ success: boolean; message: string; account?: any }> => {
+  const { data } = await api.post('/ibkr/test');
+  return data;
+};
+
+export const syncIBKR = async (): Promise<IBKRSyncResult> => {
+  const { data } = await api.post('/ibkr/sync');
+  return data;
+};
+
+export const disconnectIBKR = async (): Promise<{ success: boolean }> => {
+  const { data } = await api.post('/ibkr/disconnect');
+  return data;
+};
+
+export const getIBKRStatus = async (): Promise<IBKRStatus> => {
+  const { data } = await api.get('/ibkr/status');
+  return data;
+};
+
+// =============================================================================
+// Telegram
+// =============================================================================
+
+export const getTelegramConfig = async (): Promise<TelegramConfig> => {
+  const { data } = await api.get('/telegram/config');
+  return data;
+};
+
+export const saveTelegramConfig = async (config: TelegramConfig): Promise<TelegramConfig> => {
+  const { data } = await api.put('/telegram/config', config);
+  return data;
+};
+
+export const testTelegram = async (): Promise<{ success: boolean; message: string }> => {
+  const { data } = await api.post('/telegram/test');
+  return data;
+};
+
+export const disconnectTelegram = async (): Promise<{ success: boolean }> => {
+  const { data } = await api.post('/telegram/disconnect');
+  return data;
+};
+
+// =============================================================================
+// Stock Alerts
+// =============================================================================
+
+export const getStockAlerts = async (ticker: string): Promise<StockAlert[]> => {
+  const { data } = await api.get(`/alerts/${ticker}`);
+  return data;
+};
+
+export const createAlert = async (alert: StockAlertCreate): Promise<StockAlert> => {
+  const { data } = await api.post('/alerts', alert);
+  return data;
+};
+
+export const updateAlert = async (alertId: number, alert: StockAlertCreate): Promise<StockAlert> => {
+  const { data } = await api.put(`/alerts/${alertId}`, alert);
+  return data;
+};
+
+export const deleteAlert = async (alertId: number): Promise<void> => {
+  await api.delete(`/alerts/${alertId}`);
+};
+
+export const checkAlerts = async (): Promise<AlertCheckResult> => {
+  const { data } = await api.post('/alerts/check');
   return data;
 };
 

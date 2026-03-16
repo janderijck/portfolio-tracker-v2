@@ -35,7 +35,7 @@ def _create_tables(conn):
         name TEXT NOT NULL,
         ticker TEXT NOT NULL,
         isin TEXT,
-        quantity INTEGER NOT NULL,
+        quantity REAL NOT NULL,
         price_per_share REAL NOT NULL,
         currency TEXT DEFAULT 'EUR',
         fees REAL DEFAULT 0,
@@ -92,6 +92,7 @@ def _create_tables(conn):
         custom_dividend_tax_rate REAL,
         yahoo_ticker TEXT,
         manual_price_tracking INTEGER DEFAULT 0,
+        pays_dividend INTEGER DEFAULT 0,
         notes TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -129,6 +130,46 @@ def _create_tables(conn):
         UNIQUE(ticker, date)
     );
 
+    CREATE TABLE IF NOT EXISTS figi_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        query_type TEXT NOT NULL,
+        query_value TEXT NOT NULL,
+        ticker TEXT,
+        name TEXT,
+        exch_code TEXT,
+        security_type TEXT,
+        market_sector TEXT,
+        cached_at TEXT NOT NULL,
+        UNIQUE(query_type, query_value, ticker)
+    );
+
+    CREATE TABLE IF NOT EXISTS saxo_price_cache (
+        ticker TEXT PRIMARY KEY,
+        saxo_price REAL,
+        saxo_change_percent REAL,
+        currency TEXT,
+        updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS broker_cash_balances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        broker_name TEXT NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'EUR',
+        balance REAL NOT NULL DEFAULT 0,
+        UNIQUE(broker_name, currency)
+    );
+
+    CREATE TABLE IF NOT EXISTS stock_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        alert_type TEXT NOT NULL,
+        period TEXT,
+        threshold_price REAL,
+        enabled INTEGER DEFAULT 1,
+        last_triggered_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     INSERT OR IGNORE INTO user_settings (id, date_format) VALUES (1, 'DD/MM/YYYY');
     """)
 
@@ -138,6 +179,95 @@ def _create_tables(conn):
     columns = [col[1] for col in cursor.fetchall()]
     if 'finnhub_api_key' not in columns:
         cursor.execute("ALTER TABLE user_settings ADD COLUMN finnhub_api_key TEXT")
+    if 'openfigi_api_key' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN openfigi_api_key TEXT")
+    if 'saxo_access_token' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_access_token TEXT")
+    if 'saxo_refresh_token' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_refresh_token TEXT")
+    if 'saxo_token_expiry' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_token_expiry TEXT")
+    if 'saxo_client_id' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_client_id TEXT")
+    if 'saxo_client_secret' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_client_secret TEXT")
+    if 'saxo_redirect_uri' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_redirect_uri TEXT")
+    if 'saxo_environment' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_environment TEXT DEFAULT 'SIM'")
+    if 'saxo_auth_url' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_auth_url TEXT")
+    if 'saxo_token_url' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN saxo_token_url TEXT")
+    # Add Telegram columns
+    if 'telegram_bot_token' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN telegram_bot_token TEXT")
+    if 'telegram_chat_id' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN telegram_chat_id TEXT")
+
+    # Add IBKR Flex Query columns
+    if 'ibkr_flex_token' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN ibkr_flex_token TEXT")
+    if 'ibkr_query_id' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN ibkr_query_id TEXT")
+    if 'ibkr_last_sync' not in columns:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN ibkr_last_sync TEXT")
+
+    # Add source_id column to transactions for dedup
+    cursor.execute("PRAGMA table_info(transactions)")
+    tx_columns = [col[1] for col in cursor.fetchall()]
+    if 'source_id' not in tx_columns:
+        cursor.execute("ALTER TABLE transactions ADD COLUMN source_id TEXT")
+
+    # Add source_id column to dividends for dedup
+    cursor.execute("PRAGMA table_info(dividends)")
+    div_cols_check = [col[1] for col in cursor.fetchall()]
+    if 'source_id' not in div_cols_check:
+        cursor.execute("ALTER TABLE dividends ADD COLUMN source_id TEXT")
+
+    # Add source_id column to cash_transactions for dedup
+    cursor.execute("PRAGMA table_info(cash_transactions)")
+    cash_cols_check = [col[1] for col in cursor.fetchall()]
+    if 'source_id' not in cash_cols_check:
+        cursor.execute("ALTER TABLE cash_transactions ADD COLUMN source_id TEXT")
+
+    # Add cash_balance and cash_currency columns to broker_settings if they don't exist
+    cursor.execute("PRAGMA table_info(broker_settings)")
+    broker_columns = [col[1] for col in cursor.fetchall()]
+    if 'cash_balance' not in broker_columns:
+        cursor.execute("ALTER TABLE broker_settings ADD COLUMN cash_balance REAL DEFAULT 0")
+    if 'cash_currency' not in broker_columns:
+        cursor.execute("ALTER TABLE broker_settings ADD COLUMN cash_currency TEXT DEFAULT 'EUR'")
+
+    # Migrate existing cash data from broker_settings to broker_cash_balances
+    cursor.execute("SELECT COUNT(*) FROM broker_cash_balances")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("""
+            INSERT OR IGNORE INTO broker_cash_balances (broker_name, currency, balance)
+            SELECT broker_name, COALESCE(cash_currency, 'EUR'), COALESCE(cash_balance, 0)
+            FROM broker_settings
+            WHERE COALESCE(cash_balance, 0) != 0
+        """)
+
+    # Add account_type column to broker_settings if it doesn't exist
+    cursor.execute("PRAGMA table_info(broker_settings)")
+    broker_columns2 = [col[1] for col in cursor.fetchall()]
+    if 'account_type' not in broker_columns2:
+        cursor.execute("ALTER TABLE broker_settings ADD COLUMN account_type TEXT DEFAULT 'Privé'")
+
+    # Add pays_dividend column to stock_info if it doesn't exist
+    cursor.execute("PRAGMA table_info(stock_info)")
+    stock_columns = [col[1] for col in cursor.fetchall()]
+    if 'pays_dividend' not in stock_columns:
+        cursor.execute("ALTER TABLE stock_info ADD COLUMN pays_dividend INTEGER DEFAULT 0")
+
+    # Rename old dividend columns if they exist (from earlier schema version)
+    cursor.execute("PRAGMA table_info(dividends)")
+    div_columns = [col[1] for col in cursor.fetchall()]
+    if 'withheld_amount' in div_columns:
+        cursor.execute("ALTER TABLE dividends RENAME COLUMN withheld_amount TO withheld_tax")
+    if 'net_received' in div_columns:
+        cursor.execute("ALTER TABLE dividends RENAME COLUMN net_received TO net_amount")
 
     conn.commit()
 
@@ -149,14 +279,14 @@ def insert_transaction(conn, data: dict) -> int:
         INSERT INTO transactions (
             date, broker, transaction_type, name, ticker, isin,
             quantity, price_per_share, currency, fees, taxes,
-            exchange_rate, fees_currency, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            exchange_rate, fees_currency, notes, source_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data['date'], data['broker'], data['transaction_type'],
         data['name'], data['ticker'], data['isin'],
         data['quantity'], data['price_per_share'], data['currency'],
         data['fees'], data['taxes'], data['exchange_rate'],
-        data['fees_currency'], data.get('notes')
+        data['fees_currency'], data.get('notes'), data.get('source_id')
     ))
     conn.commit()
     return cursor.lastrowid
@@ -214,17 +344,16 @@ def insert_dividend(conn, data: dict) -> int:
     cursor.execute("""
         INSERT INTO dividends (
             ticker, isin, ex_date, bruto_amount, currency,
-            withheld_amount, net_received, received, tax_paid, additional_tax_due, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            withheld_tax, net_amount, received, notes, source_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data['ticker'], data['isin'], data['ex_date'],
         data['bruto_amount'], data['currency'],
-        data.get('withheld_tax', 0),  # Map withheld_tax to withheld_amount
-        data.get('net_amount'),  # Map net_amount to net_received
+        data.get('withheld_tax', 0),
+        data.get('net_amount'),
         1 if data.get('received') else 0,
-        0,  # tax_paid defaults to False
-        0.0,  # additional_tax_due defaults to 0
-        data.get('notes')
+        data.get('notes'),
+        data.get('source_id')
     ))
     conn.commit()
     return cursor.lastrowid
@@ -234,25 +363,21 @@ def get_all_dividends(conn, ticker: str = None):
     cursor = conn.cursor()
     if ticker:
         cursor.execute(
-            "SELECT * FROM dividends WHERE ticker = ? ORDER BY ex_date DESC",
+            """SELECT d.*, s.name as stock_name
+               FROM dividends d
+               LEFT JOIN stock_info s ON d.ticker = s.ticker
+               WHERE d.ticker = ?
+               ORDER BY d.ex_date DESC""",
             (ticker,)
         )
     else:
-        cursor.execute("SELECT * FROM dividends ORDER BY ex_date DESC")
-
-    # Map database column names to API field names
-    dividends = []
-    for row in cursor.fetchall():
-        dividend = dict(row)
-        # Map withheld_amount -> withheld_tax
-        if 'withheld_amount' in dividend:
-            dividend['withheld_tax'] = dividend['withheld_amount']
-        # Map net_received -> net_amount
-        if 'net_received' in dividend:
-            dividend['net_amount'] = dividend['net_received']
-        dividends.append(dividend)
-
-    return dividends
+        cursor.execute(
+            """SELECT d.*, s.name as stock_name
+               FROM dividends d
+               LEFT JOIN stock_info s ON d.ticker = s.ticker
+               ORDER BY d.ex_date DESC"""
+        )
+    return [dict(row) for row in cursor.fetchall()]
 
 
 def delete_dividend(conn, dividend_id: int):
@@ -264,23 +389,17 @@ def delete_dividend(conn, dividend_id: int):
 
 def update_dividend(conn, dividend_id: int, data: dict) -> bool:
     cursor = conn.cursor()
-    # Map API field names to database column names
-    withheld = data.get('withheld_tax', 0)
-    net = data.get('net_amount')
-
     cursor.execute("""
         UPDATE dividends SET
             ticker = ?, isin = ?, ex_date = ?, bruto_amount = ?, currency = ?,
-            withheld_amount = ?, net_received = ?, received = ?, tax_paid = ?, additional_tax_due = ?, notes = ?
+            withheld_tax = ?, net_amount = ?, received = ?, notes = ?
         WHERE id = ?
     """, (
         data['ticker'], data['isin'], data['ex_date'],
         data['bruto_amount'], data['currency'],
-        withheld,
-        net,
+        data.get('withheld_tax', 0),
+        data.get('net_amount'),
         1 if data.get('received') else 0,
-        0,  # tax_paid
-        0.0,  # additional_tax_due
         data.get('notes'),
         dividend_id
     ))
@@ -294,13 +413,13 @@ def insert_cash_transaction(conn, data: dict) -> int:
     cursor.execute("""
         INSERT INTO cash_transactions (
             date, broker, transaction_type, amount, currency,
-            source_amount, source_currency, exchange_rate, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            source_amount, source_currency, exchange_rate, notes, source_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data['date'], data['broker'], data['transaction_type'],
         data['amount'], data['currency'],
         data.get('source_amount'), data.get('source_currency'),
-        data.get('exchange_rate'), data.get('notes')
+        data.get('exchange_rate'), data.get('notes'), data.get('source_id')
     ))
     conn.commit()
     return cursor.lastrowid
@@ -365,6 +484,64 @@ def get_available_brokers(conn):
     cursor = conn.cursor()
     cursor.execute("SELECT broker_name FROM broker_settings ORDER BY broker_name")
     return [row[0] for row in cursor.fetchall()]
+
+
+def update_broker_cash(conn, broker_name: str, cash_balance: float, cash_currency: str):
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE broker_settings SET cash_balance = ?, cash_currency = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE broker_name = ?
+    """, (cash_balance, cash_currency, broker_name))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def update_broker_account_type(conn, broker_name: str, account_type: str):
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE broker_settings SET account_type = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE broker_name = ?
+    """, (account_type, broker_name))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_broker_cash_balances(conn, broker_name: str = None):
+    cursor = conn.cursor()
+    if broker_name:
+        cursor.execute(
+            "SELECT * FROM broker_cash_balances WHERE broker_name = ? ORDER BY currency",
+            (broker_name,)
+        )
+    else:
+        cursor.execute("SELECT * FROM broker_cash_balances ORDER BY broker_name, currency")
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def upsert_broker_cash_balance(conn, broker_name: str, currency: str, balance: float):
+    cursor = conn.cursor()
+    if balance == 0:
+        cursor.execute(
+            "DELETE FROM broker_cash_balances WHERE broker_name = ? AND currency = ?",
+            (broker_name, currency)
+        )
+    else:
+        cursor.execute("""
+            INSERT INTO broker_cash_balances (broker_name, currency, balance)
+            VALUES (?, ?, ?)
+            ON CONFLICT(broker_name, currency) DO UPDATE SET balance = excluded.balance
+        """, (broker_name, currency, balance))
+    conn.commit()
+
+
+def delete_broker_cash_balance(conn, broker_name: str, currency: str):
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM broker_cash_balances WHERE broker_name = ? AND currency = ?",
+        (broker_name, currency)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 # Stock info operations
@@ -533,9 +710,17 @@ def get_user_settings(conn):
 def update_user_settings(conn, data: dict) -> bool:
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT OR REPLACE INTO user_settings (id, date_format, finnhub_api_key, updated_at)
-        VALUES (1, ?, ?, CURRENT_TIMESTAMP)
-    """, (data.get('date_format', 'DD/MM/YYYY'), data.get('finnhub_api_key')))
+        UPDATE user_settings SET
+            date_format = ?,
+            finnhub_api_key = ?,
+            openfigi_api_key = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+    """, (
+        data.get('date_format', 'DD/MM/YYYY'),
+        data.get('finnhub_api_key'),
+        data.get('openfigi_api_key'),
+    ))
     conn.commit()
     return True
 
@@ -593,3 +778,377 @@ def update_manual_price(conn, price_id: int, data: dict) -> bool:
     ))
     conn.commit()
     return cursor.rowcount > 0
+
+
+def get_figi_cache(conn, query_type: str, query_value: str):
+    """Return cached OpenFIGI results if less than 7 days old."""
+    from datetime import datetime, timedelta
+    cursor = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+    cursor.execute("""
+        SELECT ticker, name, exch_code, security_type, market_sector
+        FROM figi_cache
+        WHERE query_type = ? AND query_value = ? AND cached_at > ?
+    """, (query_type, query_value, cutoff))
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def save_figi_cache(conn, query_type: str, query_value: str, results: list):
+    """Save OpenFIGI results to cache."""
+    from datetime import datetime
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    for r in results:
+        cursor.execute("""
+            INSERT OR REPLACE INTO figi_cache
+                (query_type, query_value, ticker, name, exch_code, security_type, market_sector, cached_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            query_type, query_value,
+            r.get('ticker'), r.get('name'), r.get('exch_code'),
+            r.get('security_type'), r.get('market_sector'), now
+        ))
+    conn.commit()
+
+
+def get_stocks_missing_yahoo_ticker(conn):
+    """Get stocks that have an ISIN but no yahoo_ticker (and are not manual_price_tracking)."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM stock_info
+        WHERE isin IS NOT NULL AND isin != ''
+        AND (yahoo_ticker IS NULL OR yahoo_ticker = '')
+        AND manual_price_tracking = 0
+    """)
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def update_stock_yahoo_ticker(conn, ticker: str, yahoo_ticker: str) -> bool:
+    """Update only the yahoo_ticker field for a stock."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE stock_info SET yahoo_ticker = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE ticker = ?
+    """, (yahoo_ticker, ticker))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def clear_all_data(conn):
+    """Delete all data from data tables, keeping settings and broker config."""
+    data_tables = [
+        'transactions',
+        'dividends',
+        'cash_transactions',
+        'stock_info',
+        'price_cache',
+        'exchange_rate_cache',
+        'manual_prices',
+        'figi_cache',
+        'saxo_price_cache',
+    ]
+    cursor = conn.cursor()
+    for table in data_tables:
+        cursor.execute(f"DELETE FROM {table}")
+    conn.commit()
+
+
+# Saxo token operations
+def get_saxo_token(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT saxo_access_token FROM user_settings WHERE id = 1")
+    row = cursor.fetchone()
+    return row['saxo_access_token'] if row and row['saxo_access_token'] else None
+
+
+def save_saxo_token(conn, token: str):
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_settings SET saxo_access_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        (token,)
+    )
+    conn.commit()
+
+
+def get_saxo_tokens(conn) -> dict:
+    """Get all Saxo OAuth tokens."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT saxo_access_token, saxo_refresh_token, saxo_token_expiry FROM user_settings WHERE id = 1"
+    )
+    row = cursor.fetchone()
+    if not row:
+        return {}
+    return {
+        "access_token": row["saxo_access_token"],
+        "refresh_token": row["saxo_refresh_token"],
+        "expiry": row["saxo_token_expiry"],
+    }
+
+
+def save_saxo_tokens(conn, access_token: str, refresh_token: str, expiry: str):
+    """Save all Saxo OAuth tokens."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE user_settings SET
+            saxo_access_token = ?,
+            saxo_refresh_token = ?,
+            saxo_token_expiry = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1""",
+        (access_token, refresh_token, expiry),
+    )
+    conn.commit()
+
+
+def clear_saxo_tokens(conn):
+    """Clear all Saxo tokens (disconnect)."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE user_settings SET
+            saxo_access_token = NULL,
+            saxo_refresh_token = NULL,
+            saxo_token_expiry = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1"""
+    )
+    conn.commit()
+
+
+# Saxo price cache operations
+def get_saxo_price_cache(conn, ticker: str):
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT saxo_price, saxo_change_percent, currency, updated_at FROM saxo_price_cache WHERE ticker = ?",
+        (ticker,)
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def save_saxo_price_cache(conn, ticker: str, price: float, change_pct: float, currency: str):
+    from datetime import datetime
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO saxo_price_cache (ticker, saxo_price, saxo_change_percent, currency, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (ticker, price, change_pct, currency, datetime.now().isoformat()))
+    conn.commit()
+
+
+def get_all_saxo_price_cache(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM saxo_price_cache")
+    return {row['ticker']: dict(row) for row in cursor.fetchall()}
+
+
+# Saxo configuration operations
+def get_saxo_config(conn) -> dict:
+    """Get Saxo API configuration."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT saxo_client_id, saxo_client_secret, saxo_redirect_uri, saxo_auth_url, saxo_token_url FROM user_settings WHERE id = 1"
+    )
+    row = cursor.fetchone()
+    if not row:
+        return {}
+    return {
+        "client_id": row["saxo_client_id"] or "",
+        "client_secret": row["saxo_client_secret"] or "",
+        "redirect_uri": row["saxo_redirect_uri"] or "",
+        "auth_url": row["saxo_auth_url"] or "",
+        "token_url": row["saxo_token_url"] or "",
+    }
+
+
+def save_saxo_config(conn, client_id: str, client_secret: str, redirect_uri: str, auth_url: str, token_url: str):
+    """Save Saxo API configuration."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE user_settings SET
+            saxo_client_id = ?,
+            saxo_client_secret = ?,
+            saxo_redirect_uri = ?,
+            saxo_auth_url = ?,
+            saxo_token_url = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1""",
+        (client_id, client_secret, redirect_uri, auth_url, token_url),
+    )
+    conn.commit()
+
+
+# IBKR Flex Query operations
+def get_ibkr_config(conn) -> dict:
+    """Get IBKR Flex Query configuration."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT ibkr_flex_token, ibkr_query_id, ibkr_last_sync FROM user_settings WHERE id = 1"
+    )
+    row = cursor.fetchone()
+    if not row:
+        return {}
+    return {
+        "flex_token": row["ibkr_flex_token"] or "",
+        "query_id": row["ibkr_query_id"] or "",
+        "last_sync": row["ibkr_last_sync"],
+    }
+
+
+def save_ibkr_config(conn, flex_token: str, query_id: str):
+    """Save IBKR Flex Query configuration."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE user_settings SET
+            ibkr_flex_token = ?,
+            ibkr_query_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1""",
+        (flex_token, query_id),
+    )
+    conn.commit()
+
+
+def clear_ibkr_config(conn):
+    """Clear all IBKR config (disconnect)."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE user_settings SET
+            ibkr_flex_token = NULL,
+            ibkr_query_id = NULL,
+            ibkr_last_sync = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1"""
+    )
+    conn.commit()
+
+
+def update_ibkr_last_sync(conn, timestamp: str):
+    """Update IBKR last sync timestamp."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE user_settings SET ibkr_last_sync = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        (timestamp,),
+    )
+    conn.commit()
+
+
+def check_source_id_exists(conn, table: str, source_id: str) -> bool:
+    """Check if a source_id already exists in a table (for dedup)."""
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT 1 FROM {table} WHERE source_id = ?", (source_id,))
+    return cursor.fetchone() is not None
+
+
+# Telegram configuration operations
+def get_telegram_config(conn) -> dict:
+    """Get Telegram bot configuration."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT telegram_bot_token, telegram_chat_id FROM user_settings WHERE id = 1"
+    )
+    row = cursor.fetchone()
+    if not row:
+        return {}
+    return {
+        "bot_token": row["telegram_bot_token"] or "",
+        "chat_id": row["telegram_chat_id"] or "",
+    }
+
+
+def save_telegram_config(conn, bot_token: str, chat_id: str):
+    """Save Telegram bot configuration."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE user_settings SET
+            telegram_bot_token = ?,
+            telegram_chat_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1""",
+        (bot_token, chat_id),
+    )
+    conn.commit()
+
+
+def clear_telegram_config(conn):
+    """Clear Telegram configuration (disconnect)."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE user_settings SET
+            telegram_bot_token = NULL,
+            telegram_chat_id = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1"""
+    )
+    conn.commit()
+
+
+# Stock alert operations
+def get_alerts_for_stock(conn, ticker: str):
+    """Get all alerts for a specific stock."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM stock_alerts WHERE ticker = ? ORDER BY created_at DESC",
+        (ticker,)
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def get_all_enabled_alerts(conn):
+    """Get all enabled alerts."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM stock_alerts WHERE enabled = 1")
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def insert_alert(conn, data: dict) -> int:
+    """Create a new stock alert."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO stock_alerts (ticker, alert_type, period, threshold_price, enabled)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        data['ticker'], data['alert_type'],
+        data.get('period'), data.get('threshold_price'),
+        1 if data.get('enabled', True) else 0,
+    ))
+    conn.commit()
+    return cursor.lastrowid
+
+
+def update_alert(conn, alert_id: int, data: dict) -> bool:
+    """Update an existing alert."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE stock_alerts SET
+            alert_type = ?, period = ?, threshold_price = ?, enabled = ?
+        WHERE id = ?
+    """, (
+        data['alert_type'], data.get('period'),
+        data.get('threshold_price'),
+        1 if data.get('enabled', True) else 0,
+        alert_id,
+    ))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def delete_alert(conn, alert_id: int) -> bool:
+    """Delete an alert."""
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM stock_alerts WHERE id = ?", (alert_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def update_alert_triggered(conn, alert_id: int):
+    """Update the last_triggered_at timestamp for an alert."""
+    from datetime import datetime
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE stock_alerts SET last_triggered_at = ? WHERE id = ?",
+        (datetime.now().isoformat(), alert_id),
+    )
+    conn.commit()
+
+

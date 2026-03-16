@@ -82,6 +82,20 @@ export function getCurrencySymbol(currency: string): string {
 }
 
 /**
+ * Get Dutch label for dividend frequency.
+ */
+export function frequencyLabel(freq: string): string {
+  const labels: Record<string, string> = {
+    monthly: 'Maandelijks',
+    quarterly: 'Kwartaal',
+    'semi-annual': 'Halfjaarlijks',
+    annual: 'Jaarlijks',
+    irregular: 'Onregelmatig',
+  };
+  return labels[freq] || freq;
+}
+
+/**
  * Get background color class for manual price based on age.
  * Returns Tailwind background color class based on how old the price is.
  *

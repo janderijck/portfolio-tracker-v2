@@ -18,6 +18,10 @@ import {
   updateStock,
   deleteStock,
   getBrokers,
+  getBrokerDetails,
+  updateBrokerCash,
+  updateBrokerAccountType,
+  getCashSummary,
   getPerformanceSummary,
   getDividendSummary,
   getCostSummary,
@@ -28,8 +32,16 @@ import {
   deleteManualPrice,
   getStockDetail,
   getStockHistory,
+  uploadImportFile,
+  confirmImport,
+  getDividendCalendar,
+  getMovers,
+  getStockAlerts,
+  createAlert,
+  updateAlert as updateAlertApi,
+  deleteAlert as deleteAlertApi,
 } from '@/api/client';
-import type { TransactionCreate, DividendCreate, StockInfoCreate, ManualPriceCreate } from '@/types';
+import type { TransactionCreate, DividendCreate, StockInfoCreate, ManualPriceCreate, ImportConfirmPayload, BrokerCashUpdate, StockAlertCreate } from '@/types';
 
 // =============================================================================
 // Portfolio Hooks
@@ -40,6 +52,15 @@ export const usePortfolio = () => {
     queryKey: ['portfolio'],
     queryFn: getPortfolio,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+};
+
+export const useMovers = (period: string) => {
+  return useQuery({
+    queryKey: ['movers', period],
+    queryFn: () => getMovers(period),
+    enabled: period !== '1d',
+    staleTime: 15 * 60 * 1000, // 15 minutes
   });
 };
 
@@ -139,6 +160,14 @@ export const useDeleteDividend = () => {
   });
 };
 
+export const useDividendCalendar = () => {
+  return useQuery({
+    queryKey: ['dividends', 'calendar'],
+    queryFn: getDividendCalendar,
+    staleTime: 30 * 60 * 1000,
+  });
+};
+
 // =============================================================================
 // Stock Hooks
 // =============================================================================
@@ -178,7 +207,7 @@ export const useUpdateStock = () => {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['stocks'] });
       queryClient.invalidateQueries({ queryKey: ['portfolio'] });
-      queryClient.invalidateQueries({ queryKey: ['stockDetail', variables.ticker] });
+      queryClient.invalidateQueries({ queryKey: ['stock', variables.ticker] });
     },
   });
 };
@@ -204,6 +233,47 @@ export const useBrokers = () => {
     queryKey: ['brokers'],
     queryFn: getBrokers,
     staleTime: 60 * 60 * 1000, // 1 hour - brokers rarely change
+  });
+};
+
+export const useBrokerDetails = () => {
+  return useQuery({
+    queryKey: ['brokers', 'details'],
+    queryFn: getBrokerDetails,
+    staleTime: 5 * 60 * 1000,
+  });
+};
+
+export const useUpdateBrokerCash = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ brokerName, data }: { brokerName: string; data: BrokerCashUpdate }) =>
+      updateBrokerCash(brokerName, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brokers'] });
+      queryClient.invalidateQueries({ queryKey: ['cashSummary'] });
+    },
+  });
+};
+
+export const useUpdateBrokerAccountType = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ brokerName, accountType }: { brokerName: string; accountType: string }) =>
+      updateBrokerAccountType(brokerName, accountType),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['brokers'] });
+    },
+  });
+};
+
+export const useCashSummary = () => {
+  return useQuery({
+    queryKey: ['cashSummary'],
+    queryFn: getCashSummary,
+    staleTime: 5 * 60 * 1000,
   });
 };
 
@@ -311,6 +381,80 @@ export const useDeleteManualPrice = () => {
       queryClient.invalidateQueries({ queryKey: ['manualPrices', ticker] });
       queryClient.invalidateQueries({ queryKey: ['portfolio'] });
       queryClient.invalidateQueries({ queryKey: ['stock', ticker] });
+    },
+  });
+};
+
+// =============================================================================
+// Import Hooks
+// =============================================================================
+
+export const useUploadImportFile = () => {
+  return useMutation({
+    mutationFn: ({ file, broker }: { file: File; broker?: string }) =>
+      uploadImportFile(file, broker),
+  });
+};
+
+export const useConfirmImport = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: ImportConfirmPayload) => confirmImport(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['dividends'] });
+      queryClient.invalidateQueries({ queryKey: ['stocks'] });
+      queryClient.invalidateQueries({ queryKey: ['brokers'] });
+      queryClient.invalidateQueries({ queryKey: ['analysis'] });
+    },
+  });
+};
+
+// =============================================================================
+// Stock Alert Hooks
+// =============================================================================
+
+export const useStockAlerts = (ticker: string) => {
+  return useQuery({
+    queryKey: ['alerts', ticker],
+    queryFn: () => getStockAlerts(ticker),
+    enabled: !!ticker,
+  });
+};
+
+export const useCreateAlert = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (alert: StockAlertCreate) => createAlert(alert),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['alerts', variables.ticker] });
+    },
+  });
+};
+
+export const useUpdateAlert = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ alertId, data }: { alertId: number; data: StockAlertCreate }) =>
+      updateAlertApi(alertId, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['alerts', variables.data.ticker] });
+    },
+  });
+};
+
+export const useDeleteAlert = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ alertId }: { alertId: number; ticker: string }) =>
+      deleteAlertApi(alertId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['alerts', variables.ticker] });
     },
   });
 };
