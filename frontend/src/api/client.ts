@@ -41,6 +41,11 @@ import type {
   StockAlert,
   StockAlertCreate,
   AlertCheckResult,
+  HistoricalDataPoint,
+  WatchlistItem,
+  StockDetailResponse,
+  StockLookupResult,
+  StockSearchResult,
 } from '@/types';
 
 // Use environment variable for API URL, fallback to /api for local development
@@ -139,12 +144,12 @@ export const getStocks = async (): Promise<StockInfo[]> => {
   return data;
 };
 
-export const getWatchlist = async () => {
+export const getWatchlist = async (): Promise<WatchlistItem[]> => {
   const { data } = await api.get('/watchlist');
   return data;
 };
 
-export const getStockDetail = async (ticker: string) => {
+export const getStockDetail = async (ticker: string): Promise<StockDetailResponse> => {
   const { data } = await api.get(`/stocks/${ticker}`);
   return data;
 };
@@ -154,12 +159,12 @@ export const createStock = async (stock: StockInfoCreate): Promise<StockInfo> =>
   return data;
 };
 
-export const lookupStockByISIN = async (isin: string) => {
+export const lookupStockByISIN = async (isin: string): Promise<StockLookupResult> => {
   const { data } = await api.get(`/stocks/lookup/${isin}`);
   return data;
 };
 
-export const searchStocks = async (query: string) => {
+export const searchStocks = async (query: string): Promise<StockSearchResult[]> => {
   const { data } = await api.get('/stocks/search', { params: { q: query } });
   return data;
 };
@@ -284,11 +289,6 @@ export const deleteManualPrice = async (ticker: string, id: number): Promise<voi
 // =============================================================================
 // Historical Data
 // =============================================================================
-
-export interface HistoricalDataPoint {
-  date: string;
-  price: number;
-}
 
 export const getStockHistory = async (ticker: string, period: string = '1y'): Promise<HistoricalDataPoint[]> => {
   const { data } = await api.get(`/stocks/${ticker}/history`, { params: { period } });

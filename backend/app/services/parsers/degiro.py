@@ -22,31 +22,8 @@ from .base import (
     ParseResult,
     ParsedTransaction,
     ParsedStock,
+    _country_from_isin,
 )
-
-# Country detection from ISIN prefix
-ISIN_COUNTRY_MAP = {
-    "US": "Verenigde Staten",
-    "BE": "België",
-    "NL": "Nederland",
-    "FR": "Frankrijk",
-    "DE": "Duitsland",
-    "IE": "Ierland",
-    "GB": "Verenigd Koninkrijk",
-    "LU": "Luxemburg",
-    "IT": "Italië",
-    "ES": "Spanje",
-    "CH": "Zwitserland",
-    "CA": "Canada",
-    "AU": "Australië",
-    "JP": "Japan",
-    "DK": "Denemarken",
-    "SE": "Zweden",
-    "NO": "Noorwegen",
-    "FI": "Finland",
-    "AT": "Oostenrijk",
-    "PT": "Portugal",
-}
 
 # Exchange -> currency mapping (fallback if currency column is empty)
 EXCHANGE_CURRENCY = {
@@ -77,13 +54,6 @@ def _parse_european_decimal(value: str) -> float:
     return float(cleaned)
 
 
-def _country_from_isin(isin: str) -> str:
-    """Determine country from ISIN prefix."""
-    if isin and len(isin) >= 2:
-        return ISIN_COUNTRY_MAP.get(isin[:2].upper(), "Onbekend")
-    return "Onbekend"
-
-
 class DegiroParser(BaseParser):
     """Parser for DEGIRO CSV transaction exports."""
 
@@ -94,15 +64,24 @@ class DegiroParser(BaseParser):
         result = ParseResult(broker="DEGIRO")
 
         # Read and decode the file content
-        raw_bytes = file_content.read()
+        try:
+            raw_bytes = file_content.read()
+        except Exception as e:
+            result.warnings.append(f"Kon het bestand niet lezen: {e}")
+            return result
+
         # Try UTF-8 first, then latin-1
         try:
             text = raw_bytes.decode("utf-8-sig")
         except UnicodeDecodeError:
             text = raw_bytes.decode("latin-1")
 
-        reader = csv.reader(StringIO(text), delimiter=",")
-        rows = list(reader)
+        try:
+            reader = csv.reader(StringIO(text), delimiter=",")
+            rows = list(reader)
+        except Exception as e:
+            result.warnings.append(f"Kon het bestand niet parsen als CSV: {e}")
+            return result
 
         if len(rows) < 2:
             result.warnings.append("CSV bestand bevat geen data rijen")

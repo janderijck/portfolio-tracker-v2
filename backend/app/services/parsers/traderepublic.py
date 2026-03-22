@@ -25,8 +25,6 @@ import re
 from io import BytesIO
 from typing import Optional
 
-import pdfplumber
-
 from .base import (
     BaseParser,
     ParseResult,
@@ -34,19 +32,9 @@ from .base import (
     ParsedDividend,
     ParsedCashTransaction,
     ParsedStock,
+    _country_from_isin,
+    _extract_text,
 )
-
-# Country detection from ISIN prefix
-ISIN_COUNTRY_MAP = {
-    "US": "Verenigde Staten",
-    "BE": "België",
-    "NL": "Nederland",
-    "FR": "Frankrijk",
-    "DE": "Duitsland",
-    "IE": "Ierland",
-    "GB": "Verenigd Koninkrijk",
-    "LU": "Luxemburg",
-}
 
 MONTH_MAP = {
     "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
@@ -89,17 +77,6 @@ YEAR_RE = re.compile(r'^(\d{4})\b')
 TYPE_KEYWORDS = ("Trade", "Transfer", "Interest", "Earnings")
 
 
-def _country_from_isin(isin: str) -> str:
-    if isin and len(isin) >= 2:
-        return ISIN_COUNTRY_MAP.get(isin[:2], "Onbekend")
-    return "Onbekend"
-
-
-def _detect_asset_type(name: str) -> str:
-    """Detect asset type. ETFs are stored as STOCK in the app's data model."""
-    return "STOCK"
-
-
 def _parse_date(day_month: str, year: str) -> Optional[str]:
     match = re.match(r'(\d{1,2})\s+(\w{3})', day_month.strip())
     if not match:
@@ -125,7 +102,7 @@ class TradeRepublicParser(BaseParser):
         result = ParseResult(broker="Trade Republic")
         seen_stocks: dict[str, ParsedStock] = {}
 
-        full_text = self._extract_text(file_content, result)
+        full_text = _extract_text(file_content, result)
         if not full_text:
             result.warnings.append("Kon geen tekst uit het PDF-bestand extraheren.")
             return result
@@ -140,19 +117,6 @@ class TradeRepublicParser(BaseParser):
 
         result.stocks = list(seen_stocks.values())
         return result
-
-    def _extract_text(self, file_content: BytesIO, result: ParseResult) -> str:
-        pages_text = []
-        try:
-            with pdfplumber.open(file_content) as pdf:
-                for page in pdf.pages:
-                    text = page.extract_text()
-                    if text:
-                        pages_text.append(text)
-        except Exception as e:
-            result.warnings.append(f"Fout bij het lezen van PDF: {str(e)}")
-            return ""
-        return "\n".join(pages_text)
 
     def _split_transactions(self, text: str) -> list[dict]:
         """Split full text into individual transaction blocks.
@@ -375,7 +339,7 @@ class TradeRepublicParser(BaseParser):
                 ticker=isin,
                 isin=isin,
                 name=name,
-                asset_type=_detect_asset_type(name),
+                asset_type="STOCK",
                 currency="EUR",
                 country=_country_from_isin(isin),
             )

@@ -18,10 +18,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Login to Azure
-        uses: azure/login@v1
+        uses: azure/login@cb79c773a3cfa27f31f25eb3f677781210c9ce3d # v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -32,7 +32,7 @@ jobs:
           echo "login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
 
       - name: Login to ACR
-        uses: azure/docker-login@v1
+        uses: azure/docker-login@83efeb77770c98b620c73055fbb59b2847e17dc0 # v1
         with:
           login-server: ${{ steps.acr.outputs.login_server }}
           username: ${{ env.ACR_NAME }}
@@ -53,14 +53,14 @@ jobs:
           docker push ${{ steps.acr.outputs.login_server }}/portfolio-frontend:latest
 
       - name: Deploy backend to Container Apps
-        uses: azure/container-apps-deploy-action@v1
+        uses: azure/container-apps-deploy-action@29ee19866ec987ededd70b8412d9ee241a9102d1 # v1
         with:
           resourceGroup: ${{ env.RESOURCE_GROUP }}
           containerAppName: ${{ env.BACKEND_APP }}
           imageToDeploy: ${{ steps.acr.outputs.login_server }}/portfolio-backend:${{ github.sha }}
 
       - name: Deploy frontend to Container Apps
-        uses: azure/container-apps-deploy-action@v1
+        uses: azure/container-apps-deploy-action@29ee19866ec987ededd70b8412d9ee241a9102d1 # v1
         with:
           resourceGroup: ${{ env.RESOURCE_GROUP }}
           containerAppName: ${{ env.FRONTEND_APP }}
@@ -83,10 +83,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Login to Azure
-        uses: azure/login@v1
+        uses: azure/login@cb79c773a3cfa27f31f25eb3f677781210c9ce3d # v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -97,7 +97,7 @@ jobs:
             --location ${{ env.LOCATION }}
 
       - name: Deploy Infrastructure
-        uses: azure/arm-deploy@v1
+        uses: azure/arm-deploy@65ae74fb7aec7c680c88ef456811f353adae4d06 # v1
         with:
           subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           resourceGroupName: ${{ env.RESOURCE_GROUP }}

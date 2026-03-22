@@ -7,6 +7,55 @@ from datetime import date
 from typing import Optional
 from io import BytesIO
 
+import pdfplumber
+
+
+# Country detection from ISIN prefix
+ISIN_COUNTRY_MAP = {
+    "US": "Verenigde Staten",
+    "BE": "België",
+    "NL": "Nederland",
+    "FR": "Frankrijk",
+    "DE": "Duitsland",
+    "IE": "Ierland",
+    "GB": "Verenigd Koninkrijk",
+    "LU": "Luxemburg",
+    "IT": "Italië",
+    "ES": "Spanje",
+    "CH": "Zwitserland",
+    "CA": "Canada",
+    "AU": "Australië",
+    "JP": "Japan",
+    "DK": "Denemarken",
+    "SE": "Zweden",
+    "NO": "Noorwegen",
+    "FI": "Finland",
+    "AT": "Oostenrijk",
+    "PT": "Portugal",
+}
+
+
+def _country_from_isin(isin: str) -> str:
+    """Determine country from ISIN prefix."""
+    if isin and len(isin) >= 2:
+        return ISIN_COUNTRY_MAP.get(isin[:2].upper(), "Onbekend")
+    return "Onbekend"
+
+
+def _extract_text(file_content: BytesIO, result: "ParseResult") -> str:
+    """Extract text from a PDF file using pdfplumber."""
+    pages_text = []
+    try:
+        with pdfplumber.open(file_content) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    pages_text.append(text)
+    except Exception as e:
+        result.warnings.append(f"Fout bij het lezen van PDF: {str(e)}")
+        return ""
+    return "\n".join(pages_text)
+
 
 @dataclass
 class ParsedTransaction:

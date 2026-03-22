@@ -128,7 +128,6 @@ class PortfolioHolding(BaseModel):
     is_usd_account: bool = False
     manual_price_date: Optional[date] = None
     pays_dividend: bool = False
-    price_updated_at: Optional[str] = None
 
 
 class PortfolioSummary(BaseModel):
@@ -371,6 +370,10 @@ class BrokerDetail(BaseModel):
     notes: Optional[str] = None
 
 
+class BrokerCreate(BaseModel):
+    broker_name: str
+
+
 class BrokerAccountTypeUpdate(BaseModel):
     account_type: str
 
@@ -390,6 +393,17 @@ class BrokerCashItem(BaseModel):
 class CashSummary(BaseModel):
     total_cash_eur: float
     per_broker: List[BrokerCashItem]
+
+
+# =============================================================================
+# Import Models
+# =============================================================================
+
+class ImportConfirmRequest(BaseModel):
+    transactions: list = []
+    dividends: list = []
+    cash_transactions: list = []
+    stocks: list = []
 
 
 # =============================================================================

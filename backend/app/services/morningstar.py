@@ -13,7 +13,7 @@ import json
 import logging
 import requests
 from typing import Optional, List
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 
 from .database import get_db, get_figi_cache, save_figi_cache, get_cached_price, save_price_to_cache
 
@@ -219,18 +219,9 @@ def get_fund_nav(isin: str) -> Optional[dict]:
     if not ms_result or ms_result.get('current_price') is None:
         return None
 
-    new_price = ms_result['current_price']
-
-    # Calculate change_percent from previous cached price
-    change_percent = 0.0
-    if cached and cached.get('current_price') and cached['current_price'] > 0:
-        prev_price = cached['current_price']
-        if prev_price != new_price:
-            change_percent = ((new_price - prev_price) / prev_price) * 100
-
     result = {
-        'current_price': new_price,
-        'change_percent': change_percent,
+        'current_price': ms_result['current_price'],
+        'change_percent': 0,  # Morningstar screener doesn't return daily change
         'currency': ms_result['currency'],
     }
 
@@ -335,20 +326,3 @@ def get_fund_nav_history(isin: str, period: str = '1y') -> List[dict]:
     except Exception as e:
         logger.warning(f"Morningstar: history error for {isin}: {e}")
         return []
-
-
-# --- Dividend data ---
-def get_fund_dividends(isin: str, start_date: date) -> List[dict]:
-    """
-    Get dividend distributions for a fund.
-
-    Note: Morningstar's public API has limited dividend history for funds.
-    This is a best-effort implementation. Falls back to empty list if unavailable.
-
-    Returns:
-        List of {ex_date, amount, currency}
-    """
-    # Dividend data requires authenticated API which is no longer available
-    # Return empty list - dividends for funds should be entered manually
-    logger.info(f"Morningstar: dividend data requires manual entry for {isin}")
-    return []

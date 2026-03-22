@@ -1,4 +1,4 @@
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Dashboard from '@/pages/Dashboard';
 import StockDetail from '@/pages/StockDetail';
@@ -9,6 +9,7 @@ import Watchlist from '@/pages/Watchlist';
 import Import from '@/pages/Import';
 import { saxoCallback } from '@/api/client';
 import { Moon, Sun, TrendingUp, Settings as SettingsIcon, Upload } from 'lucide-react';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 function App() {
   const navigate = useNavigate();
@@ -59,29 +60,30 @@ function App() {
             </div>
 
             <div className="flex items-center gap-6">
-              <a href="/" className="text-sm font-medium hover:text-primary transition-colors">
+              <Link to="/" className="text-sm font-medium hover:text-primary transition-colors">
                 Dashboard
-              </a>
-              <a href="/watchlist" className="text-sm font-medium hover:text-primary transition-colors">
+              </Link>
+              <Link to="/watchlist" className="text-sm font-medium hover:text-primary transition-colors">
                 Watchlist
-              </a>
-              <a href="/dividends" className="text-sm font-medium hover:text-primary transition-colors">
+              </Link>
+              <Link to="/dividends" className="text-sm font-medium hover:text-primary transition-colors">
                 Dividenden
-              </a>
-              <a href="/analysis" className="text-sm font-medium hover:text-primary transition-colors">
+              </Link>
+              <Link to="/analysis" className="text-sm font-medium hover:text-primary transition-colors">
                 Analyse
-              </a>
-              <a href="/import" className="text-sm font-medium hover:text-primary transition-colors flex items-center gap-1">
+              </Link>
+              <Link to="/import" className="text-sm font-medium hover:text-primary transition-colors flex items-center gap-1">
                 <Upload className="h-4 w-4" />
                 Import
-              </a>
-              <a href="/settings" className="text-sm font-medium hover:text-primary transition-colors">
+              </Link>
+              <Link to="/settings" className="text-sm font-medium hover:text-primary transition-colors" aria-label="Instellingen">
                 <SettingsIcon className="h-5 w-5" />
-              </a>
+              </Link>
 
               <button
                 onClick={() => setDarkMode(!darkMode)}
                 className="p-2 rounded-md hover:bg-accent transition-colors"
+                aria-label={darkMode ? 'Lichte modus' : 'Donkere modus'}
               >
                 {darkMode ? (
                   <Sun className="h-5 w-5" />
@@ -96,15 +98,17 @@ function App() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/stock/:ticker" element={<StockDetail />} />
-          <Route path="/watchlist" element={<Watchlist />} />
-          <Route path="/dividends" element={<Dividends />} />
-          <Route path="/analysis" element={<Analysis />} />
-          <Route path="/import" element={<Import />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/stock/:ticker" element={<StockDetail />} />
+            <Route path="/watchlist" element={<Watchlist />} />
+            <Route path="/dividends" element={<Dividends />} />
+            <Route path="/analysis" element={<Analysis />} />
+            <Route path="/import" element={<Import />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );

@@ -1,4 +1,5 @@
 import { usePerformance, useDividendSummary, useCosts, useAllocation } from '@/hooks/usePortfolio';
+import { formatCurrency, formatPercent } from '@/utils/formatting';
 import { Loader2, TrendingUp, TrendingDown, PiggyBank, Receipt, PieChart } from 'lucide-react';
 
 export default function Analysis() {
@@ -6,15 +7,6 @@ export default function Analysis() {
   const { data: dividends, isLoading: loadingDividends } = useDividendSummary();
   const { data: costs, isLoading: loadingCosts } = useCosts();
   const { data: allocation, isLoading: loadingAllocation } = useAllocation();
-
-  const formatCurrency = (value: number, currency: string = 'EUR') => {
-    const symbol = currency === 'USD' ? '$' : '€';
-    return `${symbol}${value.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
-  const formatPercent = (value: number) => {
-    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-  };
 
   const isLoading = loadingPerformance || loadingDividends || loadingCosts || loadingAllocation;
 

@@ -20,6 +20,7 @@ from .base import (
     ParsedDividend,
     ParsedCashTransaction,
     ParsedStock,
+    _country_from_isin,
 )
 
 # Saxo symbol -> Yahoo Finance ticker mapping
@@ -46,18 +47,6 @@ SAXO_TO_YAHOO_TICKER = {
     "XYL:xnys": "XYL",
 }
 
-# Country detection from ISIN prefix
-ISIN_COUNTRY_MAP = {
-    "US": "Verenigde Staten",
-    "BE": "België",
-    "NL": "Nederland",
-    "FR": "Frankrijk",
-    "DE": "Duitsland",
-    "IE": "Ierland",
-    "GB": "Verenigd Koninkrijk",
-    "LU": "Luxemburg",
-}
-
 
 def _parse_action_qty_price(action_text: str) -> tuple[str, Optional[float], Optional[float]]:
     """
@@ -81,23 +70,9 @@ def _parse_action_qty_price(action_text: str) -> tuple[str, Optional[float], Opt
     return ("UNKNOWN", None, None)
 
 
-def _country_from_isin(isin: str) -> str:
-    """Determine country from ISIN prefix."""
-    if isin and len(isin) >= 2:
-        return ISIN_COUNTRY_MAP.get(isin[:2], "Onbekend")
-    return "Onbekend"
-
-
 def _saxo_to_yahoo(saxo_symbol: str) -> Optional[str]:
     """Convert Saxo symbol to Yahoo Finance ticker."""
     return SAXO_TO_YAHOO_TICKER.get(saxo_symbol)
-
-
-def _detect_asset_type(instrument_type: str) -> str:
-    """Map Saxo instrument type to app asset type."""
-    if instrument_type and instrument_type.lower() in ("etf", "etc", "etn"):
-        return "STOCK"  # ETFs are treated as STOCK in the app
-    return "STOCK"
 
 
 class SaxoParser(BaseParser):
@@ -109,7 +84,11 @@ class SaxoParser(BaseParser):
     def parse(self, file_content: BytesIO, filename: str) -> ParseResult:
         result = ParseResult(broker="Saxo")
 
-        wb = openpyxl.load_workbook(file_content, read_only=True, data_only=True)
+        try:
+            wb = openpyxl.load_workbook(file_content, read_only=True, data_only=True)
+        except Exception as e:
+            result.warnings.append(f"Kon het bestand niet openen als Excel: {e}")
+            return result
 
         # Parse main Transacties sheet
         if "Transacties" not in wb.sheetnames:
@@ -313,10 +292,11 @@ class SaxoParser(BaseParser):
         yahoo_ticker = _saxo_to_yahoo(saxo_symbol) if saxo_symbol else None
         app_ticker = yahoo_ticker or (saxo_symbol.split(":")[0] if saxo_symbol else isin)
 
-        # Handle GBP pence (GBp) - convert to GBP
-        if instrument_currency == "GBP" and price > 100:
-            # Saxo reports London stocks in pence, convert to pounds
+        # Handle GBP pence (GBp/GBX) - convert to GBP
+        if instrument_currency.upper() in ("GBP", "GBX") and instrument_currency != "GBP":
+            # Currency is GBp or GBX (pence), convert to pounds
             price = price / 100.0
+            instrument_currency = "GBP"
 
         # Determine the exchange rate for the transaction
         # For EUR account trades in EUR instruments, rate is 1.0
@@ -348,7 +328,7 @@ class SaxoParser(BaseParser):
                 ticker=app_ticker,
                 isin=isin,
                 name=instrument or "Onbekend",
-                asset_type=_detect_asset_type(row_dict.get("Type", "")),
+                asset_type="STOCK",
                 currency=instrument_currency or "EUR",
                 yahoo_ticker=yahoo_ticker,
                 country=_country_from_isin(isin),

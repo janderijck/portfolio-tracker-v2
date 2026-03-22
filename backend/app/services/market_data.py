@@ -1,19 +1,22 @@
 """
 Market data service for fetching prices and exchange rates from Yahoo Finance, Finnhub and OpenFIGI.
 """
+import logging
 import time as _time
 import yfinance as yf
 import finnhub
 import requests
 from typing import Optional, List
 from datetime import datetime, date
+
+logger = logging.getLogger(__name__)
 from .database import (
     get_db, get_cached_exchange_rate, save_exchange_rate_to_cache,
     get_user_settings, get_cached_price, save_price_to_cache,
     get_figi_cache, save_figi_cache,
 )
 
-PRICE_CACHE_TTL = 86400  # 24 hours in seconds
+PRICE_CACHE_TTL = 3600  # 1 hour in seconds
 DIVIDEND_INFO_CACHE_TTL = 86400  # 24 hours in seconds
 PERIOD_CHANGES_CACHE_TTL = 900  # 15 minutes in seconds
 
@@ -135,11 +138,11 @@ def openfigi_map_isin(isin: str) -> list:
         )
 
         if resp.status_code == 429:
-            print(f"OpenFIGI rate limited for ISIN {isin}")
+            logger.warning(f"OpenFIGI rate limited for ISIN {isin}")
             return []
 
         if resp.status_code != 200:
-            print(f"OpenFIGI error {resp.status_code} for ISIN {isin}")
+            logger.warning(f"OpenFIGI error {resp.status_code} for ISIN {isin}")
             return []
 
         data = resp.json()
@@ -169,7 +172,7 @@ def openfigi_map_isin(isin: str) -> list:
         return results
 
     except requests.RequestException as e:
-        print(f"OpenFIGI request error for ISIN {isin}: {e}")
+        logger.error(f"OpenFIGI request error for ISIN {isin}: {e}")
         return []
 
 
@@ -209,11 +212,11 @@ def openfigi_search(query: str) -> list:
         )
 
         if resp.status_code == 429:
-            print(f"OpenFIGI rate limited for search '{query}'")
+            logger.warning(f"OpenFIGI rate limited for search '{query}'")
             return []
 
         if resp.status_code != 200:
-            print(f"OpenFIGI error {resp.status_code} for search '{query}'")
+            logger.warning(f"OpenFIGI error {resp.status_code} for search '{query}'")
             return []
 
         data = resp.json()
@@ -266,7 +269,7 @@ def openfigi_search(query: str) -> list:
         return results
 
     except requests.RequestException as e:
-        print(f"OpenFIGI request error for search '{query}': {e}")
+        logger.error(f"OpenFIGI request error for search '{query}': {e}")
         return []
 
 
@@ -482,7 +485,7 @@ def lookup_by_isin(isin: str) -> Optional[dict]:
                 'dividend_yield': None,
             }
     except Exception as e:
-        print(f"Morningstar lookup failed for ISIN {isin}: {e}")
+        logger.warning(f"Morningstar lookup failed for ISIN {isin}: {e}")
 
     # 4. Yahoo Finance with ISIN directly as last resort
     try:
@@ -529,7 +532,7 @@ def lookup_by_isin(isin: str) -> Optional[dict]:
                 'dividend_yield': dividend_yield,
             }
     except Exception as e:
-        print(f"Error looking up ISIN {isin}: {e}")
+        logger.error(f"Error looking up ISIN {isin}: {e}")
 
     # 5. Finnhub fallback for non-European ISINs
     if not is_european:
@@ -662,7 +665,7 @@ def lookup_by_isin_finnhub(isin: str) -> Optional[dict]:
         }
 
     except Exception as e:
-        print(f"Error looking up ISIN {isin} via Finnhub: {e}")
+        logger.error(f"Error looking up ISIN {isin} via Finnhub: {e}")
         return None
 
 
@@ -703,7 +706,7 @@ def get_current_price_finnhub(ticker: str) -> Optional[dict]:
         return result
 
     except Exception as e:
-        print(f"Error fetching price for {ticker} via Finnhub: {e}")
+        logger.error(f"Error fetching price for {ticker} via Finnhub: {e}")
         return None
 
 
@@ -814,7 +817,7 @@ def get_historical_monthly_prices(yahoo_tickers: dict, start_date: str) -> dict:
                             result[internal][month_key] = float(price)
 
     except Exception as e:
-        print(f"Error fetching historical prices: {e}")
+        logger.error(f"Error fetching historical prices: {e}")
 
     return result
 
@@ -855,7 +858,7 @@ def get_historical_exchange_rates(from_currency: str, to_currency: str, start_da
         return rates
 
     except Exception as e:
-        print(f"Error fetching historical exchange rates: {e}")
+        logger.error(f"Error fetching historical exchange rates: {e}")
         return {}
 
 
@@ -962,7 +965,7 @@ def get_dividend_history(ticker: str, start_date: date) -> List[dict]:
         return result
 
     except Exception as e:
-        print(f"Error fetching dividend history for {ticker}: {e}")
+        logger.error(f"Error fetching dividend history for {ticker}: {e}")
         return []
 
 
@@ -1022,7 +1025,7 @@ def get_dividend_info(ticker: str) -> Optional[dict]:
         return result
 
     except Exception as e:
-        print(f"Error fetching dividend info for {ticker}: {e}")
+        logger.error(f"Error fetching dividend info for {ticker}: {e}")
         return None
 
 
@@ -1091,7 +1094,7 @@ def get_period_changes(yahoo_tickers: dict, period: str) -> dict:
                         result[internal] = ((last_close - first_close) / first_close) * 100
 
     except Exception as e:
-        print(f"Error fetching period changes ({period}): {e}")
+        logger.error(f"Error fetching period changes ({period}): {e}")
 
     _period_changes_cache[cache_key] = {'data': result, 'timestamp': _time.time()}
     return result

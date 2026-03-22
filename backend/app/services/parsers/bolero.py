@@ -20,14 +20,13 @@ import re
 from io import BytesIO
 from typing import Optional
 
-import pdfplumber
-
 from .base import (
     BaseParser,
     ParseResult,
     ParsedTransaction,
     ParsedCashTransaction,
     ParsedStock,
+    _extract_text,
 )
 
 # Market name to (country, Yahoo Finance suffix) mapping
@@ -142,7 +141,7 @@ class BoleroParser(BaseParser):
     def parse(self, file_content: BytesIO, filename: str) -> ParseResult:
         result = ParseResult(broker="Bolero")
 
-        full_text = self._extract_text(file_content, result)
+        full_text = _extract_text(file_content, result)
         if not full_text:
             result.warnings.append("Kon geen tekst uit het PDF-bestand extraheren.")
             return result
@@ -173,19 +172,6 @@ class BoleroParser(BaseParser):
         )
 
         return result
-
-    def _extract_text(self, file_content: BytesIO, result: ParseResult) -> str:
-        pages_text = []
-        try:
-            with pdfplumber.open(file_content) as pdf:
-                for page in pdf.pages:
-                    text = page.extract_text()
-                    if text:
-                        pages_text.append(text)
-        except Exception as e:
-            result.warnings.append(f"Fout bij het lezen van PDF: {str(e)}")
-            return ""
-        return "\n".join(pages_text)
 
     def _extract_report_date(self, text: str) -> Optional[str]:
         """Extract report date from 'Aangemaakt DD/MM/YYYY' header."""

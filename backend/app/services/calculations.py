@@ -36,7 +36,7 @@ def calculate_average_price(transactions: List[dict]) -> float:
     return float(avg.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
 
-def calculate_total_quantity(transactions: List[dict]) -> int:
+def calculate_total_quantity(transactions: List[dict]) -> float:
     """
     Calculate net quantity from all transactions.
 
@@ -46,15 +46,16 @@ def calculate_total_quantity(transactions: List[dict]) -> int:
         transactions: List of transaction dicts
 
     Returns:
-        Net quantity held
+        Net quantity held (float to support fractional shares)
     """
-    total = 0
+    total = Decimal('0')
     for tx in transactions:
+        quantity = Decimal(str(tx['quantity']))
         if tx['transaction_type'] == 'BUY':
-            total += tx['quantity']
+            total += quantity
         else:  # SELL
-            total -= tx['quantity']
-    return total
+            total -= quantity
+    return float(total)
 
 
 def calculate_total_invested(transactions: List[dict]) -> float:

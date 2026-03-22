@@ -269,6 +269,21 @@ def _create_tables(conn):
     if 'net_received' in div_columns:
         cursor.execute("ALTER TABLE dividends RENAME COLUMN net_received TO net_amount")
 
+    # Create indexes for frequently queried columns
+    conn.executescript("""
+    CREATE INDEX IF NOT EXISTS idx_transactions_ticker ON transactions(ticker);
+    CREATE INDEX IF NOT EXISTS idx_transactions_source_id ON transactions(source_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_broker ON transactions(broker);
+    CREATE INDEX IF NOT EXISTS idx_dividends_ticker ON dividends(ticker);
+    CREATE INDEX IF NOT EXISTS idx_dividends_source_id ON dividends(source_id);
+    CREATE INDEX IF NOT EXISTS idx_dividends_ex_date ON dividends(ex_date);
+    CREATE INDEX IF NOT EXISTS idx_cash_transactions_source_id ON cash_transactions(source_id);
+    CREATE INDEX IF NOT EXISTS idx_stock_alerts_ticker ON stock_alerts(ticker);
+    CREATE INDEX IF NOT EXISTS idx_stock_alerts_enabled ON stock_alerts(ticker, enabled);
+    CREATE INDEX IF NOT EXISTS idx_price_cache_ticker ON price_cache(ticker);
+    CREATE INDEX IF NOT EXISTS idx_stock_info_isin ON stock_info(isin);
+    """)
+
     conn.commit()
 
 
@@ -484,16 +499,6 @@ def get_available_brokers(conn):
     cursor = conn.cursor()
     cursor.execute("SELECT broker_name FROM broker_settings ORDER BY broker_name")
     return [row[0] for row in cursor.fetchall()]
-
-
-def update_broker_cash(conn, broker_name: str, cash_balance: float, cash_currency: str):
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE broker_settings SET cash_balance = ?, cash_currency = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE broker_name = ?
-    """, (cash_balance, cash_currency, broker_name))
-    conn.commit()
-    return cursor.rowcount > 0
 
 
 def update_broker_account_type(conn, broker_name: str, account_type: str):
@@ -836,7 +841,7 @@ def update_stock_yahoo_ticker(conn, ticker: str, yahoo_ticker: str) -> bool:
 
 def clear_all_data(conn):
     """Delete all data from data tables, keeping settings and broker config."""
-    data_tables = [
+    ALLOWED_TABLES = {
         'transactions',
         'dividends',
         'cash_transactions',
@@ -846,30 +851,14 @@ def clear_all_data(conn):
         'manual_prices',
         'figi_cache',
         'saxo_price_cache',
-    ]
+    }
     cursor = conn.cursor()
-    for table in data_tables:
+    for table in ALLOWED_TABLES:
         cursor.execute(f"DELETE FROM {table}")
     conn.commit()
 
 
 # Saxo token operations
-def get_saxo_token(conn):
-    cursor = conn.cursor()
-    cursor.execute("SELECT saxo_access_token FROM user_settings WHERE id = 1")
-    row = cursor.fetchone()
-    return row['saxo_access_token'] if row and row['saxo_access_token'] else None
-
-
-def save_saxo_token(conn, token: str):
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE user_settings SET saxo_access_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-        (token,)
-    )
-    conn.commit()
-
-
 def get_saxo_tokens(conn) -> dict:
     """Get all Saxo OAuth tokens."""
     cursor = conn.cursor()
@@ -1035,6 +1024,9 @@ def update_ibkr_last_sync(conn, timestamp: str):
 
 def check_source_id_exists(conn, table: str, source_id: str) -> bool:
     """Check if a source_id already exists in a table (for dedup)."""
+    ALLOWED_TABLES = {"transactions", "dividends", "cash_transactions"}
+    if table not in ALLOWED_TABLES:
+        raise ValueError(f"Invalid table name: {table}")
     cursor = conn.cursor()
     cursor.execute(f"SELECT 1 FROM {table} WHERE source_id = ?", (source_id,))
     return cursor.fetchone() is not None

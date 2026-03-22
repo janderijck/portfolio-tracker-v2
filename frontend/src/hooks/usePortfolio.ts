@@ -72,6 +72,7 @@ export const useTransactions = (ticker?: string) => {
   return useQuery({
     queryKey: ['transactions', ticker],
     queryFn: () => getTransactions(ticker),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -120,6 +121,7 @@ export const useDividends = (ticker?: string) => {
   return useQuery({
     queryKey: ['dividends', ticker],
     queryFn: () => getDividends(ticker),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -176,6 +178,7 @@ export const useStocks = () => {
   return useQuery({
     queryKey: ['stocks'],
     queryFn: getStocks,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -183,6 +186,7 @@ export const useWatchlist = () => {
   return useQuery({
     queryKey: ['watchlist'],
     queryFn: getWatchlist,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -321,6 +325,7 @@ export const useStockDetail = (ticker: string) => {
   return useQuery({
     queryKey: ['stock', ticker],
     queryFn: () => getStockDetail(ticker),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -340,6 +345,7 @@ export const useManualPrices = (ticker: string) => {
   return useQuery({
     queryKey: ['manualPrices', ticker],
     queryFn: () => getManualPrices(ticker),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 };
 
@@ -421,6 +427,7 @@ export const useStockAlerts = (ticker: string) => {
     queryKey: ['alerts', ticker],
     queryFn: () => getStockAlerts(ticker),
     enabled: !!ticker,
+    staleTime: 60 * 1000, // 1 minute - alerts should be more responsive
   });
 };
 

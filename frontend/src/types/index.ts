@@ -88,7 +88,6 @@ export interface PortfolioHolding {
   is_usd_account: boolean;
   manual_price_date: string | null;
   pays_dividend: boolean;
-  price_updated_at: string | null;
 }
 
 export interface PortfolioSummary {
@@ -476,5 +475,90 @@ export interface AlertCheckResult {
   checked: number;
   triggered: number;
   errors: string[];
+}
+
+// =============================================================================
+// Watchlist Types
+// =============================================================================
+
+export interface WatchlistItem {
+  id: number;
+  ticker: string;
+  isin: string;
+  name: string;
+  asset_type: 'STOCK' | 'REIT' | 'FUND';
+  country: string;
+  yahoo_ticker: string | null;
+  manual_price_tracking: boolean;
+  pays_dividend: boolean;
+  current_price: number | null;
+  currency: string;
+}
+
+// =============================================================================
+// Stock Detail Types
+// =============================================================================
+
+export interface PriceInfo {
+  current_price: number;
+  change_percent: number;
+  currency: string;
+}
+
+export interface UpcomingDividend {
+  ex_date: string;
+  estimated_per_share: number;
+  currency: string;
+  frequency: string;
+}
+
+export interface StockDetailResponse {
+  info: StockInfo | null;
+  transactions: Transaction[];
+  dividends: Dividend[];
+  current_price: PriceInfo | null;
+  upcoming_dividends: UpcomingDividend[];
+}
+
+// =============================================================================
+// Stock Lookup & Search Types
+// =============================================================================
+
+export interface StockLookupResult {
+  ticker: string;
+  isin: string;
+  name: string;
+  currency: string;
+  country: string;
+  asset_type: string;
+  current_price: number | null;
+  yahoo_ticker: string | null;
+  pays_dividend: boolean;
+  dividend_yield: number | null;
+}
+
+export interface StockSearchResult {
+  ticker: string;
+  isin: string;
+  name: string;
+  asset_type: string;
+  country: string;
+  yahoo_ticker: string | null;
+  manual_price_tracking: boolean | number;
+  current_price: number | null;
+  currency: string;
+  pays_dividend: boolean;
+  dividend_yield: number | null;
+  from_openfigi?: boolean;
+  from_morningstar?: boolean;
+}
+
+// =============================================================================
+// Historical Data Types
+// =============================================================================
+
+export interface HistoricalDataPoint {
+  date: string;
+  price: number;
 }
 
