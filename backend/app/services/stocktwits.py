@@ -18,9 +18,39 @@ SENTIMENT_CACHE_TTL = 1800  # 30 minutes
 _sentiment_cache: dict = {}  # {ticker: {'data': ..., 'timestamp': float}}
 
 
+def _normalize_ticker(ticker: str) -> list[str]:
+    """
+    Generate StockTwits-compatible ticker variants.
+
+    StockTwits uses US-style tickers without exchange suffixes.
+    E.g. ENGI.PA -> try ['ENGI.PA', 'ENGI'], AAPL -> ['AAPL']
+    """
+    candidates = [ticker]
+    if '.' in ticker:
+        base = ticker.split('.')[0]
+        if base not in candidates:
+            candidates.append(base)
+    return candidates
+
+
+def _fetch_sentiment(symbol: str) -> Optional[requests.Response]:
+    """Try fetching sentiment for a single symbol."""
+    resp = requests.get(
+        STOCKTWITS_API_URL.format(symbol=symbol),
+        timeout=10,
+        headers={"User-Agent": "PortfolioTracker/1.0"},
+    )
+    if resp.status_code == 200:
+        return resp
+    return None
+
+
 def get_sentiment(ticker: str) -> Optional[dict]:
     """
     Get sentiment summary for a ticker from StockTwits.
+
+    Tries the original ticker first, then stripped variants
+    (e.g. ENGI.PA -> ENGI) since StockTwits mainly supports US tickers.
 
     Returns dict with bullish/bearish counts and percentage,
     or None if unavailable.
@@ -30,13 +60,15 @@ def get_sentiment(ticker: str) -> Optional[dict]:
         return cached['data']
 
     try:
-        resp = requests.get(
-            STOCKTWITS_API_URL.format(symbol=ticker),
-            timeout=10,
-            headers={"User-Agent": "PortfolioTracker/1.0"},
-        )
-        if resp.status_code != 200:
-            logger.warning("StockTwits returned %d for %s", resp.status_code, ticker)
+        resp = None
+        for candidate in _normalize_ticker(ticker):
+            resp = _fetch_sentiment(candidate)
+            if resp:
+                break
+
+        if not resp:
+            # Cache the miss too to avoid repeated API calls
+            _sentiment_cache[ticker] = {'data': None, 'timestamp': time.time()}
             return None
 
         data = resp.json()
