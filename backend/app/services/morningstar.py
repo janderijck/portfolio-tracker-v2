@@ -219,9 +219,18 @@ def get_fund_nav(isin: str) -> Optional[dict]:
     if not ms_result or ms_result.get('current_price') is None:
         return None
 
+    new_price = ms_result['current_price']
+
+    # Calculate change_percent from previous cached price
+    change_percent = 0.0
+    if cached and cached.get('current_price') and cached['current_price'] > 0:
+        prev_price = cached['current_price']
+        if prev_price != new_price:
+            change_percent = ((new_price - prev_price) / prev_price) * 100
+
     result = {
-        'current_price': ms_result['current_price'],
-        'change_percent': 0,  # Morningstar screener doesn't return daily change
+        'current_price': new_price,
+        'change_percent': change_percent,
         'currency': ms_result['currency'],
     }
 

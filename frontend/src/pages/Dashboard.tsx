@@ -13,7 +13,7 @@ import DateInput from '@/components/DateInput';
 
 import { useQueryClient } from '@tanstack/react-query';
 
-type SortField = 'name' | 'quantity' | 'avg_purchase_price' | 'current_price' | 'current_value_eur' | 'total_invested_eur' | 'gain_loss' | 'gain_loss_percent' | 'change_percent' | 'broker';
+type SortField = 'name' | 'quantity' | 'avg_purchase_price' | 'current_price' | 'current_value_eur' | 'total_invested_eur' | 'gain_loss' | 'gain_loss_percent' | 'change_percent' | 'broker' | 'price_updated_at';
 type SortDir = 'asc' | 'desc';
 
 function SortHeader({ field, label, sortField, sortDir, onToggle, align = 'right' }: {
@@ -34,8 +34,20 @@ function SortHeader({ field, label, sortField, sortDir, onToggle, align = 'right
   );
 }
 
+function formatPriceUpdatedAt(isoStr: string | null): { text: string; colorClass: string } {
+  if (!isoStr) return { text: '-', colorClass: 'text-muted-foreground' };
+  const updated = new Date(isoStr);
+  const now = new Date();
+  const hoursAgo = (now.getTime() - updated.getTime()) / (1000 * 60 * 60);
+  const text = updated.toLocaleString('nl-BE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  let colorClass = 'text-green-500';
+  if (hoursAgo > 24) colorClass = 'text-red-500';
+  else if (hoursAgo > 12) colorClass = 'text-orange-500';
+  return { text, colorClass };
+}
+
 export default function Dashboard() {
-  const { data, isLoading, error, isFetching, refetch, isRefetching } = usePortfolio();
+  const { data, isLoading, error, refetch, isRefetching } = usePortfolio();
   const { data: brokers } = useBrokers();
   const { data: cashSummary } = useCashSummary();
   const { data: brokerDetails } = useBrokerDetails();
@@ -296,7 +308,6 @@ export default function Dashboard() {
     : filteredCashItems.reduce((sum, b) => sum + b.cash_balance_eur, 0);
   const cashEurOnly = filteredCashItems.filter(b => b.cash_currency === 'EUR').reduce((sum, b) => sum + b.cash_balance, 0);
   const cashUsd = filteredCashItems.filter(b => b.cash_currency === 'USD').reduce((sum, b) => sum + b.cash_balance, 0);
-  const cashUsdEur = filteredCashItems.filter(b => b.cash_currency === 'USD').reduce((sum, b) => sum + b.cash_balance_eur, 0);
 
   // Split holdings into EUR and USD
   const eurHoldings = filteredHoldings.filter(h => !h.is_usd_account);
@@ -309,6 +320,7 @@ export default function Dashboard() {
       let bv: number | string = 0;
       if (field === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
       else if (field === 'broker') { av = a.broker.toLowerCase(); bv = b.broker.toLowerCase(); }
+      else if (field === 'price_updated_at') { av = a.price_updated_at ?? ''; bv = b.price_updated_at ?? ''; }
       else { av = (a as any)[field] ?? -Infinity; bv = (b as any)[field] ?? -Infinity; }
       if (av < bv) return dir === 'asc' ? -1 : 1;
       if (av > bv) return dir === 'asc' ? 1 : -1;
@@ -1064,11 +1076,13 @@ export default function Dashboard() {
                   <SortHeader field="gain_loss_percent" label="%" sortField={eurSortField} sortDir={eurSortDir} onToggle={toggleEurSort} />
                   <SortHeader field="change_percent" label="Dag" sortField={eurSortField} sortDir={eurSortDir} onToggle={toggleEurSort} />
                   <SortHeader field="broker" label="Broker" sortField={eurSortField} sortDir={eurSortDir} onToggle={toggleEurSort} align="left" />
+                  <SortHeader field="price_updated_at" label="Bijgewerkt" sortField={eurSortField} sortDir={eurSortDir} onToggle={toggleEurSort} />
                 </tr>
               </thead>
               <tbody>
                 {sortedEurHoldings.map((holding) => {
                   const symbol = getCurrencySymbol('EUR');
+                  const priceAge = formatPriceUpdatedAt(holding.price_updated_at);
                   return (
                     <tr key={`${holding.ticker}-${holding.broker}`} className="border-b hover:bg-muted/50">
                       <td className="p-4">
@@ -1133,6 +1147,7 @@ export default function Dashboard() {
                           : ''}
                       </td>
                       <td className="p-4">{holding.broker}</td>
+                      <td className={`text-right p-4 text-xs ${priceAge.colorClass}`}>{priceAge.text}</td>
                     </tr>
                   );
                 })}
@@ -1174,11 +1189,13 @@ export default function Dashboard() {
                   <SortHeader field="gain_loss_percent" label="%" sortField={usdSortField} sortDir={usdSortDir} onToggle={toggleUsdSort} />
                   <SortHeader field="change_percent" label="Dag" sortField={usdSortField} sortDir={usdSortDir} onToggle={toggleUsdSort} />
                   <SortHeader field="broker" label="Broker" sortField={usdSortField} sortDir={usdSortDir} onToggle={toggleUsdSort} align="left" />
+                  <SortHeader field="price_updated_at" label="Bijgewerkt" sortField={usdSortField} sortDir={usdSortDir} onToggle={toggleUsdSort} />
                 </tr>
               </thead>
               <tbody>
                 {sortedUsdHoldings.map((holding) => {
                   const symbol = getCurrencySymbol('USD');
+                  const priceAge = formatPriceUpdatedAt(holding.price_updated_at);
 
                   return (
                     <tr key={`${holding.ticker}-${holding.broker}`} className="border-b hover:bg-muted/50">
@@ -1244,6 +1261,7 @@ export default function Dashboard() {
                           : ''}
                       </td>
                       <td className="p-4">{holding.broker}</td>
+                      <td className={`text-right p-4 text-xs ${priceAge.colorClass}`}>{priceAge.text}</td>
                     </tr>
                   );
                 })}

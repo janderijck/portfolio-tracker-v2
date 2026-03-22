@@ -501,6 +501,50 @@ export default function StockDetail() {
         )}
       </div>
 
+      {/* StockTwits Sentiment */}
+      {stockDetail?.sentiment && (
+        <div className="bg-card rounded-lg border">
+          <div className="p-6 border-b">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              Marktsentiment
+            </h3>
+          </div>
+          <div className="p-6">
+            <div className="space-y-4">
+              {/* Sentiment bar */}
+              <div>
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-green-500 font-medium">
+                    Bullish {stockDetail.sentiment.bullish_percent}%
+                  </span>
+                  <span className="text-red-500 font-medium">
+                    Bearish {(100 - stockDetail.sentiment.bullish_percent).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-3 rounded-full bg-red-500/20 overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 rounded-full transition-all"
+                    style={{ width: `${stockDetail.sentiment.bullish_percent}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                <span>{stockDetail.sentiment.bullish} bullish</span>
+                <span>{stockDetail.sentiment.bearish} bearish</span>
+                <span>van {stockDetail.sentiment.message_count} berichten</span>
+              </div>
+
+              <div className="text-xs text-muted-foreground">
+                Bron: StockTwits
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Price Alerts */}
       <div className="bg-card rounded-lg border">
         <div className="p-6 border-b flex justify-between items-center">

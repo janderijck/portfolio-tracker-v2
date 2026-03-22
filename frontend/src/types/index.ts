@@ -88,6 +88,7 @@ export interface PortfolioHolding {
   is_usd_account: boolean;
   manual_price_date: string | null;
   pays_dividend: boolean;
+  price_updated_at: string | null;
 }
 
 export interface PortfolioSummary {

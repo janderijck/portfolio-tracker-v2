@@ -5,6 +5,7 @@ Routes only - business logic is in services.
 """
 import logging
 import os
+from datetime import datetime, timedelta
 from io import BytesIO
 from contextlib import asynccontextmanager
 
@@ -173,6 +174,7 @@ async def get_portfolio():
                 manual_price_date = None
                 price_ticker = (stock_info_data.get('yahoo_ticker') or ticker) if stock_info_data else ticker
 
+                price_updated_at = None
                 if uses_manual:
                     saxo_cached = saxo_prices.get(ticker)
                     if saxo_cached and saxo_cached.get('saxo_price'):
@@ -188,6 +190,8 @@ async def get_portfolio():
                             price_info = get_cached_price_only(price_ticker)
                             current_price = price_info['current_price'] if price_info else None
                             currency = price_info['currency'] if price_info else transactions[0]['currency']
+                            if price_info:
+                                price_updated_at = price_info.get('updated_at')
                 elif stock_info_data and stock_info_data.get('asset_type') == 'FUND':
                     isin = stock_info_data.get('isin') or (transactions[0]['isin'] if transactions else None)
                     if isin:
@@ -195,6 +199,7 @@ async def get_portfolio():
                         if price_info:
                             current_price = price_info['current_price']
                             currency = price_info['currency']
+                            price_updated_at = price_info.get('updated_at')
                         else:
                             manual_price = get_latest_manual_price(conn, ticker)
                             if manual_price:
@@ -211,6 +216,8 @@ async def get_portfolio():
                     price_info = get_cached_price_only(price_ticker)
                     current_price = price_info['current_price'] if price_info else None
                     currency = price_info['currency'] if price_info else 'USD'
+                    if price_info:
+                        price_updated_at = price_info.get('updated_at')
 
                     saxo_cached = saxo_prices.get(ticker)
                     if saxo_cached and saxo_cached.get('saxo_price'):
@@ -218,11 +225,24 @@ async def get_portfolio():
                         currency = saxo_cached.get('currency', currency)
 
                 # Get change_percent from price cache
+                # Only use change_percent if the cache is recent (< 18h)
+                # to avoid showing stale daily changes from days ago
                 change_pct = None
                 if not uses_manual:
-                    pi = get_cached_price_only(price_ticker)
+                    # For funds, price is cached under ISIN, not price_ticker
+                    change_lookup = price_ticker
+                    if stock_info_data and stock_info_data.get('asset_type') == 'FUND':
+                        change_lookup = stock_info_data.get('isin') or (transactions[0]['isin'] if transactions else price_ticker)
+                    pi = get_cached_price_only(change_lookup)
                     if pi:
-                        change_pct = pi.get('change_percent')
+                        pi_updated = pi.get('updated_at')
+                        if pi_updated:
+                            try:
+                                cache_age = datetime.now() - datetime.fromisoformat(pi_updated)
+                                if cache_age < timedelta(hours=18):
+                                    change_pct = pi.get('change_percent')
+                            except (ValueError, TypeError):
+                                pass
 
                 price_cache[ticker] = {
                     'current_price': current_price,
@@ -230,6 +250,7 @@ async def get_portfolio():
                     'manual_price_date': manual_price_date,
                     'pays_dividend': pays_dividend,
                     'change_percent': change_pct,
+                    'price_updated_at': price_updated_at,
                 }
             else:
                 cached = price_cache[ticker]
@@ -238,6 +259,7 @@ async def get_portfolio():
                 manual_price_date = cached['manual_price_date']
                 pays_dividend = cached['pays_dividend']
                 change_pct = cached['change_percent']
+                price_updated_at = cached['price_updated_at']
 
             # Calculate metrics using pure functions
             tx_currency = transactions[0]['currency'] if transactions else 'EUR'
@@ -282,7 +304,8 @@ async def get_portfolio():
                 change_percent=round(change_pct, 2) if change_pct is not None else None,
                 is_usd_account=metrics['is_usd_account'],
                 manual_price_date=manual_price_date,
-                pays_dividend=pays_dividend
+                pays_dividend=pays_dividend,
+                price_updated_at=price_updated_at
             )
             holdings.append(holding)
 
@@ -983,12 +1006,21 @@ async def get_stock_detail(ticker: str):
             except Exception:
                 pass  # Don't fail stock detail if forecast fails
 
+        # Fetch social sentiment (non-critical)
+        sentiment = None
+        try:
+            from .services.stocktwits import get_sentiment
+            sentiment = get_sentiment(ticker)
+        except Exception:
+            pass
+
         return {
             "info": info,
             "transactions": transactions,
             "dividends": dividends,
             "current_price": price_info,
             "upcoming_dividends": upcoming_dividends,
+            "sentiment": sentiment,
         }
 
 

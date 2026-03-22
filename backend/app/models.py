@@ -128,6 +128,7 @@ class PortfolioHolding(BaseModel):
     is_usd_account: bool = False
     manual_price_date: Optional[date] = None
     pays_dividend: bool = False
+    price_updated_at: Optional[str] = None
 
 
 class PortfolioSummary(BaseModel):
