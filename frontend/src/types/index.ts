@@ -512,12 +512,20 @@ export interface UpcomingDividend {
   frequency: string;
 }
 
+export interface StockTwitsSentiment {
+  bullish: number;
+  bearish: number;
+  bullish_percent: number;
+  message_count: number;
+}
+
 export interface StockDetailResponse {
   info: StockInfo | null;
   transactions: Transaction[];
   dividends: Dividend[];
   current_price: PriceInfo | null;
   upcoming_dividends: UpcomingDividend[];
+  sentiment?: StockTwitsSentiment | null;
 }
 
 // =============================================================================
