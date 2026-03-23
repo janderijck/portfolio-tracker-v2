@@ -7,27 +7,46 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  retryCount: number;
 }
+
+const MAX_AUTO_RETRIES = 2;
 
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, retryCount: 0 };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error('ErrorBoundary heeft een fout opgevangen:', error, errorInfo);
+
+    // Auto-retry on first errors (handles transient module loading issues)
+    if (this.state.retryCount < MAX_AUTO_RETRIES) {
+      setTimeout(() => {
+        this.setState((prev) => ({
+          hasError: false,
+          error: null,
+          retryCount: prev.retryCount + 1,
+        }));
+      }, 100);
+    }
   }
 
   handleReset = (): void => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, retryCount: 0 });
   };
 
   render() {
+    // During auto-retry, show nothing briefly instead of error UI
+    if (this.state.hasError && this.state.retryCount < MAX_AUTO_RETRIES) {
+      return null;
+    }
+
     if (this.state.hasError) {
       return (
         <div className="rounded-lg border border-border bg-card p-8 text-center">
