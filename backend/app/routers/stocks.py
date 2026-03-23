@@ -303,12 +303,21 @@ async def get_stock_detail(ticker: str):
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Non-critical error fetching dividend forecast for {ticker}: {e}")
 
+        # Fetch sentiment from StockTwits
+        sentiment = None
+        try:
+            from ..services.stocktwits import get_sentiment
+            sentiment = get_sentiment(ticker)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Sentiment fetch failed for {ticker}: {e}")
+
         return {
             "info": info,
             "transactions": transactions,
             "dividends": dividends,
             "current_price": price_info,
             "upcoming_dividends": upcoming_dividends,
+            "sentiment": sentiment,
         }
 
 

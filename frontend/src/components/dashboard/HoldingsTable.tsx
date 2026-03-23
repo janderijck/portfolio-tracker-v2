@@ -3,7 +3,7 @@ import { DollarSign, RefreshCw, Hand, Zap, ArrowUpDown, ChevronUp, ChevronDown }
 import type { PortfolioHolding } from '@/types';
 import { formatPercent, getCurrencySymbol, getManualPriceAgeColor } from '@/utils/formatting';
 
-export type SortField = 'name' | 'quantity' | 'avg_purchase_price' | 'current_price' | 'current_value_eur' | 'total_invested_eur' | 'gain_loss' | 'gain_loss_percent' | 'change_percent' | 'broker';
+export type SortField = 'name' | 'quantity' | 'avg_purchase_price' | 'current_price' | 'current_value_eur' | 'total_invested_eur' | 'gain_loss' | 'gain_loss_percent' | 'change_percent' | 'sentiment_bullish_pct' | 'broker';
 export type SortDir = 'asc' | 'desc';
 
 function SortHeader({ field, label, sortField, sortDir, onToggle, align = 'right' }: {
@@ -78,6 +78,7 @@ export default function HoldingsTable({
               <SortHeader field="gain_loss" label="W/V" sortField={sortField} sortDir={sortDir} onToggle={onToggleSort} />
               <SortHeader field="gain_loss_percent" label="%" sortField={sortField} sortDir={sortDir} onToggle={onToggleSort} />
               <SortHeader field="change_percent" label="Dag" sortField={sortField} sortDir={sortDir} onToggle={onToggleSort} />
+              <SortHeader field="sentiment_bullish_pct" label="Sentiment" sortField={sortField} sortDir={sortDir} onToggle={onToggleSort} />
               <SortHeader field="broker" label="Broker" sortField={sortField} sortDir={sortDir} onToggle={onToggleSort} align="left" />
             </tr>
           </thead>
@@ -147,6 +148,23 @@ export default function HoldingsTable({
                   {holding.change_percent !== null && holding.change_percent !== undefined
                     ? `${holding.change_percent >= 0 ? '+' : ''}${holding.change_percent.toFixed(2)}%`
                     : ''}
+                </td>
+                <td className="text-right p-4 text-sm">
+                  {holding.sentiment_bullish_pct !== null && holding.sentiment_bullish_pct !== undefined ? (
+                    <div className="flex items-center justify-end gap-1.5">
+                      <div className="w-12 h-2 rounded-full bg-red-500/20 overflow-hidden">
+                        <div
+                          className="h-full bg-green-500 rounded-full"
+                          style={{ width: `${holding.sentiment_bullish_pct}%` }}
+                        />
+                      </div>
+                      <span className={holding.sentiment_bullish_pct >= 50 ? 'text-green-500' : 'text-red-500'}>
+                        {holding.sentiment_bullish_pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground/30">—</span>
+                  )}
                 </td>
                 <td className="p-4">{holding.broker}</td>
               </tr>

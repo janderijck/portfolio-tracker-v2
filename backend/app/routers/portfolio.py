@@ -13,6 +13,7 @@ from ..services.market_data import (
     get_price_cache_status, refresh_all_prices, get_period_changes,
 )
 from ..services.calculations import calculate_holding_metrics
+from ..services.stocktwits import get_sentiment
 
 router = APIRouter(prefix="/api", tags=["portfolio"])
 
@@ -122,12 +123,20 @@ async def get_portfolio():
                     if pi:
                         change_pct = pi.get('change_percent')
 
+                # Fetch sentiment (cached in service)
+                try:
+                    sent = get_sentiment(ticker)
+                    sentiment_pct = sent['bullish_percent'] if sent else None
+                except Exception:
+                    sentiment_pct = None
+
                 price_cache[ticker] = {
                     'current_price': current_price,
                     'currency': currency,
                     'manual_price_date': manual_price_date,
                     'pays_dividend': pays_dividend,
                     'change_percent': change_pct,
+                    'sentiment_bullish_pct': sentiment_pct,
                 }
             else:
                 cached = price_cache[ticker]
@@ -136,6 +145,7 @@ async def get_portfolio():
                 manual_price_date = cached['manual_price_date']
                 pays_dividend = cached['pays_dividend']
                 change_pct = cached['change_percent']
+                sentiment_pct = cached.get('sentiment_bullish_pct')
 
             # Calculate metrics using pure functions
             tx_currency = transactions[0]['currency'] if transactions else 'EUR'
@@ -180,7 +190,8 @@ async def get_portfolio():
                 change_percent=round(change_pct, 2) if change_pct is not None else None,
                 is_usd_account=metrics['is_usd_account'],
                 manual_price_date=manual_price_date,
-                pays_dividend=pays_dividend
+                pays_dividend=pays_dividend,
+                sentiment_bullish_pct=sentiment_pct,
             )
             holdings.append(holding)
 
